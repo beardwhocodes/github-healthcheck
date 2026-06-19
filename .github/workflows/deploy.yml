@@ -1,13 +1,15 @@
 name: Deploy
 
 # Production deploys happen here, never from a developer's machine: every push to
-# master builds, tests, applies the D1 schema, and deploys the Worker to
+# master builds, tests, applies the D1 schema, sets Worker secrets, and deploys to
 # Cloudflare. Pull requests get a dry-run build so problems surface before merge.
+# `workflow_dispatch` allows a manual re-deploy from the Actions tab.
 on:
   push:
     branches: [master]
   pull_request:
     branches: [master]
+  workflow_dispatch:
 
 concurrency:
   group: deploy-${{ github.ref }}
@@ -35,9 +37,13 @@ jobs:
   deploy:
     needs: build-test
     # Activates once Cloudflare is set up: set the repo variable DEPLOY_ENABLED=true
-    # (Settings → Secrets and variables → Actions → Variables). Until then, pushes
-    # build + test green and the deploy is skipped — no red X before infra exists.
-    if: github.ref == 'refs/heads/master' && github.event_name == 'push' && vars.DEPLOY_ENABLED == 'true'
+    # (Settings → Secrets and variables → Actions → Variables) AND add the
+    # CLOUDFLARE_API_TOKEN secret. Until then, pushes build + test green and the
+    # deploy is skipped — no red X before infra exists.
+    if: >-
+      github.ref == 'refs/heads/master' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      vars.DEPLOY_ENABLED == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -57,9 +63,16 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: d1 execute github-healthcheck-db --remote --file=./src/db/schema.sql
 
+      # Deploy the Worker and push its runtime secrets in one step. Additional
+      # secrets (GITHUB_CLIENT_SECRET, RESEND_API_KEY) get appended to the list
+      # below once the production GitHub OAuth App / Resend key exist.
       - name: Deploy Worker
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: deploy
+          secrets: |
+            SESSION_SECRET
+        env:
+          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
