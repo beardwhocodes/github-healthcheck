@@ -1,0 +1,36 @@
+{
+  "name": "reposentry",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sign in with GitHub and get a security report for your account and repositories, detecting the malware-distribution clone campaign documented at orchidfiles.com.",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k -n web,api -c cyan,magenta \"npm:dev:web\" \"npm:dev:api\"",
+    "dev:web": "vite",
+    "dev:api": "wrangler dev",
+    "build": "npm run build:web && npm run typecheck",
+    "build:web": "vite build",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p web/tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "deploy": "echo 'Production deploys run in CI on push to master (.github/workflows/deploy.yml). Do not deploy from a local machine.' && exit 1",
+    "db:init": "wrangler d1 execute reposentry-db --local --file=./src/db/schema.sql",
+    "db:init:remote": "wrangler d1 execute reposentry-db --remote --file=./src/db/schema.sql"
+  },
+  "dependencies": {
+    "hono": "^4.6.14"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241218.0",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5",
+    "vitest": "^2.1.8",
+    "wrangler": "^4.103.0"
+  }
+}
