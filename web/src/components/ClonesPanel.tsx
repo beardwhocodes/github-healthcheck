@@ -2,6 +2,13 @@ import { useState } from 'react';
 
 import { ApiError, api } from '../api.js';
 import type { ClonesResponse, CloneMatch } from '../api.js';
+import {
+  ABUSE_CATEGORY_LABEL,
+  REPORT_ABUSE_FALLBACK_URL,
+  buildEvidenceText,
+  buildReportUrl,
+  pickAbuseCategory,
+} from '../report.js';
 import { fmtDate } from '../ui.js';
 import { BandBadge, FindingItem } from './Primitives.js';
 
@@ -72,6 +79,24 @@ export function ClonesPanel() {
 
 function CloneMatchCard({ match }: { match: CloneMatch }) {
   const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const category = pickAbuseCategory(match);
+  const reportUrl = buildReportUrl(match, category);
+
+  // GitHub's form can't pre-fill the description, so copy the evidence to the
+  // clipboard the moment the user clicks Report — ready to paste.
+  async function copyEvidence() {
+    try {
+      await navigator.clipboard.writeText(buildEvidenceText(match));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch {
+      // Clipboard can be blocked (permissions / insecure context) — the user
+      // can still open the form and the fallback link is shown.
+      setCopied(false);
+    }
+  }
+
   return (
     <div className="card mt16">
       <div className="match" style={{ paddingTop: 0 }}>
@@ -91,21 +116,45 @@ function CloneMatchCard({ match }: { match: CloneMatch }) {
         {match.matchReasons.length > 0 && (
           <div className="reasons">Why flagged: {match.matchReasons.join('; ')}.</div>
         )}
-        <div>
+
+        <div className="match-actions">
+          <a
+            className="btn small"
+            href={reportUrl}
+            target="_blank"
+            rel="noreferrer noopener"
+            onClick={copyEvidence}
+            style={{ padding: '6px 12px' }}
+          >
+            ⚠ Report to GitHub
+          </a>
+          <button
+            className="btn ghost small"
+            onClick={copyEvidence}
+            style={{ padding: '6px 12px' }}
+          >
+            {copied ? '✓ Copied evidence' : '📋 Copy evidence'}
+          </button>
           <button className="btn ghost small" onClick={() => setOpen((v) => !v)} style={{ padding: '6px 12px' }}>
             {open ? 'Hide' : 'Show'} {match.report.findings.length} finding
             {match.report.findings.length === 1 ? '' : 's'}
           </button>
         </div>
+        <div className="faint small mt8">
+          GitHub can&apos;t pre-fill the category or description — choose{' '}
+          <b>{ABUSE_CATEGORY_LABEL[category]}</b> in the dropdown and paste the copied evidence
+          (it&apos;s copied automatically when you click Report).
+        </div>
+
         {open && (
           <div className="mt8">
             {match.report.findings.map((f) => (
               <FindingItem finding={f} key={f.id} />
             ))}
             <p className="faint small mt8">
-              Confirmed impersonation? Report it at{' '}
-              <a href="https://github.com/contact/report-abuse" target="_blank" rel="noreferrer noopener">
-                github.com/contact/report-abuse ↗
+              Fallback if the link doesn&apos;t pre-fill:{' '}
+              <a href={REPORT_ABUSE_FALLBACK_URL} target="_blank" rel="noreferrer noopener">
+                support.github.com/contact/report-abuse ↗
               </a>
             </p>
           </div>
