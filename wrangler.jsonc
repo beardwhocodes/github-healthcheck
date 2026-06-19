@@ -46,7 +46,7 @@
     // SESSION_SECRET, RESEND_API_KEY) go in .dev.vars locally and
     // `wrangler secret put` in prod.
     "APP_URL": "https://github-healthcheck.beardwho.codes",
-    "GITHUB_CLIENT_ID": "REPLACE_WITH_YOUR_GITHUB_OAUTH_CLIENT_ID",
+    "GITHUB_CLIENT_ID": "Ov23liY3KuEfojvgelK9",
     "ALERT_FROM_EMAIL": "alerts@beardwho.codes"
   }
 }
