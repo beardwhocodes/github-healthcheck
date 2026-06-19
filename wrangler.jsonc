@@ -29,13 +29,15 @@
     { "name": "EMAIL", "allowed_sender_addresses": ["noreply@github-healthcheck.beardwho.codes"] }
   ],
 
-  // D1: sessions, repo baselines, detected clones, alert subscriptions.
-  // Create with: wrangler d1 create github-healthcheck-db  (paste the id below)
+  // D1: sessions, users, scans, support inbox, reports, alert subscriptions.
+  // Schema lives in ./migrations and is applied with `wrangler d1 migrations
+  // apply` (CI on deploy; `npm run db:init` locally) — each file runs once.
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "github-healthcheck-db",
-      "database_id": "80e3f445-c473-46a7-ada5-5ec4706ccfa0"
+      "database_id": "80e3f445-c473-46a7-ada5-5ec4706ccfa0",
+      "migrations_dir": "migrations"
     }
   ],
 

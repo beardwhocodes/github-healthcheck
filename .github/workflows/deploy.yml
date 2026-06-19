@@ -57,13 +57,15 @@ jobs:
       - name: Build SPA
         run: npm run build:web
 
-      # Apply the (idempotent) D1 schema before the Worker that depends on it.
-      - name: Apply D1 schema
+      # Apply any pending D1 migrations before the Worker that depends on them.
+      # Each migration in ./migrations runs exactly once (tracked in d1_migrations);
+      # the baseline is idempotent so it safely adopts the existing database.
+      - name: Apply D1 migrations
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: d1 execute github-healthcheck-db --remote --file=./src/db/schema.sql
+          command: d1 migrations apply github-healthcheck-db --remote
 
       # Deploy the Worker and push its runtime secrets in one step. The Worker
       # secret GITHUB_CLIENT_SECRET is fed from the Actions secret
