@@ -45,6 +45,24 @@ describe('readmeReferencesArchive', () => {
     ).toBeNull();
   });
 
+  it('treats a GitHub release archive link as low (legit distribution, non-arming)', () => {
+    const f = readmeReferencesArchive(
+      repo({ readmeText: 'Get it: https://github.com/me/proj/releases/download/v1/proj.zip' }),
+      ctx,
+    );
+    expect(f).not.toBeNull();
+    expect(f!.severity).toBe('low'); // present but does not arm tampering
+  });
+
+  it('treats a non-GitHub archive link as medium (arming)', () => {
+    const f = readmeReferencesArchive(
+      repo({ readmeText: 'Get it: https://filehost.example/proj.zip' }),
+      ctx,
+    );
+    expect(f).not.toBeNull();
+    expect(f!.severity).toBe('medium');
+  });
+
   it('does NOT flag a bare extension mention without a filename', () => {
     expect(
       readmeReferencesArchive(repo({ readmeText: 'We do not ship a .exe; build from source.' }), ctx),
@@ -105,6 +123,24 @@ describe('readmePasswordProtectedArchive', () => {
         ctx,
       ),
     ).toBeNull();
+  });
+
+  it('does NOT fire on a password phrase with no archive nearby (auth demo)', () => {
+    expect(
+      readmePasswordProtectedArchive(
+        repo({ readmeText: 'Demo login — password: admin123. Unzip password not needed.' }),
+        ctx,
+      ),
+    ).toBeNull();
+  });
+
+  it('fires when the password phrase co-occurs with an archive', () => {
+    expect(
+      readmePasswordProtectedArchive(
+        repo({ readmeText: 'Download app.zip — archive password: 2026' }),
+        ctx,
+      ),
+    ).not.toBeNull();
   });
 });
 
@@ -246,6 +282,29 @@ describe('clonedHistorySinglePusher', () => {
     });
     expect(clonedHistorySinglePusher(r, ctx)).toBeNull();
   });
+
+  it('never flags a fork (inherited history is legitimate)', () => {
+    const r = repo({
+      isFork: true,
+      contributorsCount: 12,
+      recentCommits: [
+        commit({ authorLogin: 'solo', authorName: 'solo', message: 'Update README.md', changedFiles: ['README.md'] }),
+        commit({ authorLogin: 'solo', authorName: 'solo', message: 'Update README.md', sha: 'i'.repeat(40), changedFiles: ['README.md'] }),
+      ],
+    });
+    expect(clonedHistorySinglePusher(r, ctx)).toBeNull();
+  });
+
+  it('does not flag a single benign README commit on a small team', () => {
+    const r = repo({
+      contributorsCount: 4,
+      recentCommits: [
+        commit({ authorLogin: 'solo', authorName: 'solo', message: 'Update README.md', changedFiles: ['README.md'] }),
+        commit({ authorLogin: 'solo', authorName: 'solo', message: 'Add caching layer', sha: 'j'.repeat(40), changedFiles: ['src/cache.js'] }),
+      ],
+    });
+    expect(clonedHistorySinglePusher(r, ctx)).toBeNull();
+  });
 });
 
 describe('suspiciousReleaseAsset', () => {
@@ -267,6 +326,13 @@ describe('suspiciousReleaseAsset', () => {
     const r = repo({ releaseAssets: [{ name: 'v1.0.0-source.tar.gz', downloadUrl: 'x', sizeBytes: 1 }] });
     // tar.gz is an archive, not an executable, so this rule stays quiet.
     expect(suspiciousReleaseAsset(r, ctx)).toBeNull();
+  });
+
+  it('rates a plain signed-installer .exe as medium, not high/critical', () => {
+    const r = repo({ releaseAssets: [{ name: 'MyApp-Setup-2.3.1.exe', downloadUrl: 'x', sizeBytes: 1 }] });
+    const f = suspiciousReleaseAsset(r, ctx);
+    expect(f).not.toBeNull();
+    expect(f!.severity).toBe('medium'); // not a loader name -> no high floor
   });
 });
 
@@ -290,6 +356,11 @@ describe('archiveBuriedDeep', () => {
 
   it('does not flag a top-level archive', () => {
     const r = repo({ treePaths: ['app.zip'] });
+    expect(archiveBuriedDeep(r, ctx)).toBeNull();
+  });
+
+  it('does not flag an archive under a test-fixture directory', () => {
+    const r = repo({ treePaths: ['src/index.js', 'tests/fixtures/sample/data.zip'] });
     expect(archiveBuriedDeep(r, ctx)).toBeNull();
   });
 });

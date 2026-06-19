@@ -7,6 +7,7 @@ import {
   PASSWORD_ARCHIVE_PATTERNS,
   PAYLOAD_FILENAME_PATTERNS,
   SUSPICIOUS_PAYLOAD_NAMES,
+  TEST_FIXTURE_DIR_RE,
   THRESHOLDS,
   TRIVIAL_COMMIT_MESSAGES,
   URL_SHORTENERS,
@@ -20,6 +21,7 @@ import {
   hostnameOf,
   hoursBetween,
   isBotAuthor,
+  isGithubHostedUrl,
   urlHasExtension,
 } from '../helpers.js';
 import type { Finding, RepoSnapshot } from '../types.js';
@@ -46,10 +48,15 @@ export const readmeReferencesArchive: RepoRule = (repo) => {
   const archiveUrls = extractUrls(repo.readmeText).filter((u) =>
     urlHasExtension(u, BINARY_EXTENSIONS),
   );
+  // A link to the project's OWN GitHub release is legitimate, scannable
+  // distribution — it does NOT make this a campaign-style payload. Only a
+  // non-GitHub archive link counts as the 'medium' (arming) variant.
+  const externalArchiveUrls = archiveUrls.filter((u) => !isGithubHostedUrl(u));
   const fileTokens = findBinaryFilenameTokens(repo.readmeText);
   if (archiveUrls.length === 0 && fileTokens.length === 0) return null;
 
-  const linked = archiveUrls.length > 0;
+  const linked = externalArchiveUrls.length > 0;
+  const shownLinks = (externalArchiveUrls.length > 0 ? externalArchiveUrls : archiveUrls).slice(0, 3);
   return {
     id: 'readme-references-archive',
     title: 'README references a downloadable binary/archive',
@@ -57,15 +64,18 @@ export const readmeReferencesArchive: RepoRule = (repo) => {
     detail:
       'The README points readers at a binary or archive file. In the malware ' +
       'campaign, cloned repos keep the original code untouched and only add a ' +
-      'link to a ZIP that contains the trojan loader.',
+      'link to a ZIP that contains the trojan loader.' +
+      (linked ? '' : ' (Links here are GitHub-hosted or only filename mentions, which is common in legitimate projects.)'),
     remediation:
       'If this is not your repo, do not download the archive. If it is yours, ' +
       'confirm you added these references and that they point where you expect.',
     evidence: [
       ...(fileTokens.length > 0 ? [`files: ${fileTokens.slice(0, 3).join(', ')}`] : []),
-      ...archiveUrls.slice(0, 3).map((u) => `link: ${clip(u)}`),
+      ...shownLinks.map((u) => `link: ${clip(u)}`),
     ],
-    weight: WEIGHTS.readmeReferencesArchive,
+    // The non-arming variant (GitHub-hosted link or a bare prose filename) is a
+    // very weak signal, so it carries little score weight on its own.
+    weight: linked ? WEIGHTS.readmeReferencesArchive : 4,
   };
 };
 
@@ -108,6 +118,15 @@ export const readmePasswordProtectedArchive: RepoRule = (repo) => {
   if (!repo.readmeText) return null;
   const matched = PASSWORD_ARCHIVE_PATTERNS.filter((re) => re.test(repo.readmeText!));
   if (matched.length === 0) return null;
+
+  // Require an actual archive nearby — a password phrase with NO archive (link,
+  // filename token, or archive/exe release asset) is benign English ("the
+  // password is hashed", an auth demo's "password: admin123"), not a locked build.
+  const hasArchiveContext =
+    extractUrls(repo.readmeText).some((u) => urlHasExtension(u, BINARY_EXTENSIONS)) ||
+    findBinaryFilenameTokens(repo.readmeText).length > 0 ||
+    repo.releaseAssets.some((a) => hasExtension(a.name, BINARY_EXTENSIONS));
+  if (!hasArchiveContext) return null;
 
   const lines = repo.readmeText
     .split('\n')
@@ -257,6 +276,9 @@ export const staleCodeFreshReadme: RepoRule = (repo) => {
 // 9. Many historical contributors (inherited from a clone) but recent activity
 //    is one human repeatedly touching the README.
 export const clonedHistorySinglePusher: RepoRule = (repo) => {
+  // Forks legitimately INHERIT a multi-contributor history while one person
+  // maintains them — that is not the campaign, so never flag a fork here.
+  if (repo.isFork) return null;
   if ((repo.contributorsCount ?? 0) < THRESHOLDS.clonedHistoryMinContributors) return null;
   if (repo.recentCommits.length === 0) return null;
 
@@ -266,14 +288,14 @@ export const clonedHistorySinglePusher: RepoRule = (repo) => {
   const authors = new Set(humanCommits.map((c) => (c.authorLogin ?? c.authorName).toLowerCase()));
   if (authors.size !== 1) return null;
 
-  // The lone pusher must be doing README-ish work for this to indicate the
-  // campaign rather than a normal solo-maintained fork.
-  const touchesReadme = humanCommits.some((c) => {
+  // Require REPEATED README-only work by the lone author, not a single benign
+  // "I updated my README" commit on a small-team repo.
+  const readmeCommits = humanCommits.filter((c) => {
     const msg = c.message.split('\n')[0]?.trim() ?? '';
     const filesReadme = c.changedFiles?.every((f) => README_FILE.test(f.split('/').pop() ?? '')) ?? false;
     return TRIVIAL_COMMIT_MESSAGES.some((re) => re.test(msg)) || filesReadme;
   });
-  if (!touchesReadme) return null;
+  if (readmeCommits.length < 2) return null;
 
   return {
     id: 'cloned-history-single-pusher',
@@ -292,33 +314,46 @@ export const clonedHistorySinglePusher: RepoRule = (repo) => {
 // 10. A release ships an executable/loader with a campaign-typical name.
 export const suspiciousReleaseAsset: RepoRule = (repo) => {
   if (repo.releaseAssets.length === 0) return null;
-  const flagged = repo.releaseAssets.filter((a) => {
-    const name = a.name.toLowerCase();
-    return (
-      SUSPICIOUS_PAYLOAD_NAMES.includes(name as (typeof SUSPICIOUS_PAYLOAD_NAMES)[number]) ||
-      PAYLOAD_FILENAME_PATTERNS.some((re) => re.test(name)) ||
-      hasExtension(name, EXECUTABLE_EXTENSIONS)
-    );
-  });
-  if (flagged.length === 0) return null;
 
-  const looksLikeLoader = flagged.some((a) =>
-    PAYLOAD_FILENAME_PATTERNS.some((re) => re.test(a.name.toLowerCase())) ||
-    SUSPICIOUS_PAYLOAD_NAMES.includes(a.name.toLowerCase() as (typeof SUSPICIOUS_PAYLOAD_NAMES)[number]),
+  const matchesLoaderName = (name: string): boolean =>
+    SUSPICIOUS_PAYLOAD_NAMES.includes(name as (typeof SUSPICIOUS_PAYLOAD_NAMES)[number]) ||
+    PAYLOAD_FILENAME_PATTERNS.some((re) => re.test(name));
+
+  const loaderAssets = repo.releaseAssets.filter((a) => matchesLoaderName(a.name.toLowerCase()));
+  // Bare executables (App-Setup.exe, installer.msi) are how legitimate desktop
+  // apps ship too — flag them, but at 'medium' (no high floor) so a signed
+  // installer doesn't read as high-risk on its own.
+  const bareExeAssets = repo.releaseAssets.filter(
+    (a) => !matchesLoaderName(a.name.toLowerCase()) && hasExtension(a.name.toLowerCase(), EXECUTABLE_EXTENSIONS),
   );
 
-  return {
-    id: 'suspicious-release-asset',
-    title: 'Release ships a suspicious executable / loader',
-    severity: looksLikeLoader ? 'critical' : 'high',
-    detail:
-      'Release assets include executables matching the campaign\'s rotating ' +
-      'payload names (loader.exe, unit.exe, boot.exe, java.exe, lua51.dll) or a ' +
-      'batch launcher. The LuaJIT loader is distributed exactly this way.',
-    remediation: 'Do not download or run these assets. Report the repository to GitHub if it is impersonating a project.',
-    evidence: flagged.slice(0, 5).map((a) => `asset: ${a.name}`),
-    weight: WEIGHTS.suspiciousReleaseAsset,
-  };
+  if (loaderAssets.length > 0) {
+    return {
+      id: 'suspicious-release-asset',
+      title: 'Release ships a loader-named executable',
+      severity: 'critical',
+      detail:
+        'Release assets include executables matching the campaign\'s rotating ' +
+        'payload names (loader.exe, unit.exe, boot.exe, java.exe, lua51.dll) or a ' +
+        'batch launcher. The LuaJIT loader is distributed exactly this way.',
+      remediation: 'Do not download or run these assets. Report the repository to GitHub if it is impersonating a project.',
+      evidence: loaderAssets.slice(0, 5).map((a) => `asset: ${a.name}`),
+      weight: WEIGHTS.suspiciousReleaseAsset,
+    };
+  }
+  if (bareExeAssets.length > 0) {
+    return {
+      id: 'suspicious-release-asset',
+      title: 'Release ships a downloadable executable',
+      severity: 'medium',
+      detail:
+        'A release attaches an executable/installer. Common for legitimate desktop ' +
+        'apps, but worth confirming the publisher and signature before running it.',
+      evidence: bareExeAssets.slice(0, 5).map((a) => `asset: ${a.name}`),
+      weight: WEIGHTS.suspiciousReleaseAssetBareExe,
+    };
+  }
+  return null;
 };
 
 // 11. The repo tree itself contains a loader/launcher/payload data file.
@@ -351,7 +386,7 @@ export const archiveBuriedDeep: RepoRule = (repo) => {
   if (!repo.treePaths || repo.treePaths.length === 0) return null;
   const flagged = repo.treePaths.filter((p) => {
     const depth = p.split('/').length;
-    return depth >= 3 && hasExtension(p, ARCHIVE_EXTENSIONS);
+    return depth >= 3 && hasExtension(p, ARCHIVE_EXTENSIONS) && !TEST_FIXTURE_DIR_RE.test(p);
   });
   if (flagged.length === 0) return null;
 

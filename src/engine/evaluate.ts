@@ -1,3 +1,8 @@
+import {
+  PAYLOAD_FINDING_IDS,
+  TAMPERING_FINDING_IDS,
+  TAMPER_UNARMED_FACTOR,
+} from './constants.js';
 import { ACCOUNT_RULES } from './rules/account-rules.js';
 import type { AccountRuleContext } from './rules/account-rules.js';
 import { REPO_RULES } from './rules/repo-rules.js';
@@ -27,10 +32,42 @@ function sortFindings(findings: Finding[]): Finding[] {
   });
 }
 
-export function evaluateRepo(repo: RepoSnapshot, ctx: RepoRuleContext): RepoReport {
-  const findings = sortFindings(
-    REPO_RULES.map((rule) => rule(repo, ctx)).filter((f): f is Finding => f !== null),
+// A genuine payload signal is a PAYLOAD-class finding of severity medium-or-
+// higher. (The 'low' variant of readme-references-archive — a bare prose
+// filename mention or a GitHub-hosted link — deliberately does NOT arm.)
+function hasPayloadSignal(findings: Finding[]): boolean {
+  return findings.some(
+    (f) => PAYLOAD_FINDING_IDS.has(f.id) && SEVERITY_RANK[f.severity] <= SEVERITY_RANK.medium,
   );
+}
+
+// README-tampering without a corroborating payload is ordinary maintenance:
+// demote it to an informational 'low' finding and strip its score weight so it
+// cannot, by itself, push a benign repo above 'low'.
+function demoteTampering(f: Finding): Finding {
+  return {
+    ...f,
+    severity: 'low',
+    weight: Math.round(f.weight * TAMPER_UNARMED_FACTOR),
+    detail:
+      `${f.detail} (No download/payload link was found in this repository, so on ` +
+      'its own this is most likely ordinary maintenance — the campaign\'s tell is ' +
+      'this pattern combined with a payload link.)',
+  };
+}
+
+export function evaluateRepo(repo: RepoSnapshot, ctx: RepoRuleContext): RepoReport {
+  const raw = REPO_RULES.map((rule) => rule(repo, ctx)).filter((f): f is Finding => f !== null);
+
+  // Payload-gating: tampering findings are only "armed" when a real payload
+  // signal is present; otherwise they are demoted so a benign README update
+  // (the dominant false-positive class) scores low.
+  const armed = hasPayloadSignal(raw);
+  const gated = armed
+    ? raw
+    : raw.map((f) => (TAMPERING_FINDING_IDS.has(f.id) ? demoteTampering(f) : f));
+
+  const findings = sortFindings(gated);
   const score = scoreFromFindings(findings);
 
   return {

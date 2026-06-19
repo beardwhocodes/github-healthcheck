@@ -199,6 +199,7 @@ export const WEIGHTS = {
   staleCodeFreshReadme: 20,
   clonedHistorySinglePusher: 18,
   suspiciousReleaseAsset: 34,
+  suspiciousReleaseAssetBareExe: 12,
   suspiciousTreePayload: 30,
   archiveBuriedDeep: 18,
   notForkButDuplicateName: 12,
@@ -218,3 +219,42 @@ export const BAND_THRESHOLDS: { band: import('./types.js').RiskBand; min: number
   { band: 'low', min: 10 },
   { band: 'safe', min: 0 },
 ];
+
+// Payload-gating (the core of the false-positive fix).
+//
+// The campaign's defining trait is README TAMPERING *corroborated by a PAYLOAD*
+// signal. README tampering on its own — "Update README.md", a README-only
+// commit, a dormant repo whose README was just bumped — is ordinary maintenance
+// and must NOT score high. So tampering findings are "armed" only when at least
+// one genuine payload finding (severity medium-or-higher) is also present; when
+// unarmed they are demoted to informational and down-weighted.
+export const PAYLOAD_FINDING_IDS: ReadonlySet<string> = new Set([
+  'readme-references-archive',
+  'readme-download-badge',
+  'readme-password-archive',
+  'readme-url-shortener',
+  'readme-download-lure',
+  'suspicious-release-asset',
+  'suspicious-tree-payload',
+  'archive-buried-deep',
+]);
+
+export const TAMPERING_FINDING_IDS: ReadonlySet<string> = new Set([
+  'latest-commit-only-readme',
+  'trivial-readme-commit-message',
+  'stale-code-fresh-readme',
+  'cloned-history-single-pusher',
+]);
+
+// Factor applied to a tampering finding's weight when it is UNARMED (no payload).
+// 0.25 keeps all four tampering signals together comfortably under the
+// 'elevated' cutoff (25) — with headroom so a weak non-arming payload mention
+// (e.g. a GitHub-release link) can't tip a benign "I updated my README" repo
+// over. Armed tampering is unaffected (full strength), so real-clone detection
+// is preserved.
+export const TAMPER_UNARMED_FACTOR = 0.25;
+
+// Archive paths under these directories are test fixtures / examples, not a
+// disguised payload — archive-buried-deep ignores them.
+export const TEST_FIXTURE_DIR_RE =
+  /(^|\/)(tests?|fixtures?|__fixtures__|testdata|spec|examples?|samples?|mocks?|__mocks__)\//i;
