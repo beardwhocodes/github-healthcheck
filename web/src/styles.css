@@ -497,3 +497,39 @@ input::placeholder {
 .banner.error { background: #2a1620; border-color: #5b2330; color: #fca5a5; }
 .banner.ok { background: #11231a; border-color: #1f5135; color: #bfe6c8; }
 .banner.info { background: #14213d; border-color: #2a3f6b; color: #bcd0f5; }
+
+/* Footer */
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 28px 20px 40px;
+  color: var(--text-faint);
+  font-size: 13px;
+}
+.footer a {
+  color: var(--text-dim);
+}
+.footer a:hover {
+  color: var(--text);
+}
+.footer-sep {
+  color: var(--border);
+}
+.footer-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+}
+.footer-x:hover {
+  background: var(--bg-elev);
+  border-color: var(--text-faint);
+}

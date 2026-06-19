@@ -5,6 +5,7 @@ import type { Me, SelfReportResponse } from './api.js';
 import { AccountReportView } from './components/AccountReportView.js';
 import { AlertsPanel } from './components/AlertsPanel.js';
 import { ClonesPanel } from './components/ClonesPanel.js';
+import { Footer } from './components/Footer.js';
 import { Landing } from './components/Landing.js';
 import { ScanAnyPanel } from './components/ScanAnyPanel.js';
 
@@ -40,6 +41,7 @@ export function App() {
           <Brand />
         </header>
         <Landing />
+        <Footer />
       </>
     );
   }
@@ -70,6 +72,7 @@ export function App() {
         {tab === 'scan' && <ScanAnyPanel />}
         {tab === 'alerts' && <AlertsPanel />}
       </div>
+      <Footer />
     </>
   );
 }
