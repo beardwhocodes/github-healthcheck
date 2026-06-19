@@ -4,6 +4,7 @@ import { runImpersonationScan } from './alerts/cron.js';
 import { oauth } from './auth/github-oauth.js';
 import type { Env } from './env.js';
 import { alerts } from './routes/alerts.js';
+import { email } from './routes/email.js';
 import { requireAuth } from './routes/middleware.js';
 import type { Vars } from './routes/middleware.js';
 import { scan } from './routes/scan.js';
@@ -20,6 +21,9 @@ app.use('*', async (c, next) => {
 
 // OAuth (login / callback / logout).
 app.route('/auth', oauth);
+
+// Public, token-secured email links (verify / unsubscribe) — no auth.
+app.route('/email', email);
 
 // Authenticated JSON API.
 const api = new Hono<{ Bindings: Env; Variables: Vars }>();
