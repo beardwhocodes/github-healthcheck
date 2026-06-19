@@ -55,7 +55,7 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: d1 execute reposentry-db --remote --file=./src/db/schema.sql
+          command: d1 execute github-healthcheck-db --remote --file=./src/db/schema.sql
 
       - name: Deploy Worker
         uses: cloudflare/wrangler-action@v3

@@ -42,7 +42,7 @@ export class GitHubClient {
   private async request(path: string): Promise<Response> {
     const headers: Record<string, string> = {
       Accept: 'application/vnd.github+json',
-      'User-Agent': 'RepoSentry',
+      'User-Agent': 'GitHub-Healthcheck',
       'X-GitHub-Api-Version': '2022-11-28',
     };
     if (this.token) headers.Authorization = `Bearer ${this.token}`;
@@ -162,7 +162,7 @@ export class GitHubClient {
     cap = 500,
   ): Promise<string[]> {
     const resp = await this.request(
-      `/repos/${owner}/${name}/git/trees/${branch}?recursive=1`,
+      `/repos/${owner}/${name}/git/trees/${encodeURIComponent(branch)}?recursive=1`,
     );
     if (!resp.ok) return [];
     const data = (await resp.json()) as { tree?: { path: string; type: string }[] };

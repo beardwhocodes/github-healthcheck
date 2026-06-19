@@ -24,7 +24,9 @@ export function randomToken(bytes = 32): string {
 }
 
 async function aesKey(secret: string): Promise<CryptoKey> {
-  const digest = await crypto.subtle.digest('SHA-256', encoder.encode(secret));
+  // Domain-separated from the HMAC key so the same SESSION_SECRET never serves
+  // two cryptographic purposes with the same derived key material.
+  const digest = await crypto.subtle.digest('SHA-256', encoder.encode(`${secret}:aes-gcm:v1`));
   return crypto.subtle.importKey('raw', digest, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
 }
 
@@ -53,9 +55,11 @@ export async function decrypt(payload: string, secret: string): Promise<string> 
 }
 
 async function hmacKey(secret: string): Promise<CryptoKey> {
+  // Domain-separated from the AES key (see aesKey).
+  const digest = await crypto.subtle.digest('SHA-256', encoder.encode(`${secret}:hmac:v1`));
   return crypto.subtle.importKey(
     'raw',
-    encoder.encode(secret),
+    digest,
     { name: 'HMAC', hash: 'SHA-256' },
     false,
     ['sign', 'verify'],

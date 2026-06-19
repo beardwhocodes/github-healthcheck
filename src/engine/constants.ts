@@ -33,13 +33,37 @@ export const EXECUTABLE_EXTENSIONS = [
   '.scr',
   '.bat',
   '.cmd',
-  '.com',
   '.cso',
 ] as const;
+// Note: '.com' is intentionally excluded — as an executable extension it is
+// archaic, and it collides with every "github.com"/"example.com" URL.
 
 export const BINARY_EXTENSIONS = [
   ...ARCHIVE_EXTENSIONS,
   ...EXECUTABLE_EXTENSIONS,
+] as const;
+
+// Extensions safe to scan for as bare filename tokens in README *prose* (e.g.
+// "Setup.exe"). Excludes ambiguous extensions that collide with hostnames,
+// paths, or English ('.so', '.bin', '.com', '.gz', '.xz', '.bz2') to avoid the
+// pervasive false positives a naive substring match produces.
+export const PROSE_BINARY_EXTENSIONS = [
+  'zip',
+  'rar',
+  '7z',
+  'tar',
+  'tgz',
+  'iso',
+  'dmg',
+  'msi',
+  'exe',
+  'dll',
+  'scr',
+  'jar',
+  'apk',
+  'cso',
+  'bat',
+  'cmd',
 ] as const;
 
 // Executable / launcher filenames seen in the campaign's ZIP payloads. Names

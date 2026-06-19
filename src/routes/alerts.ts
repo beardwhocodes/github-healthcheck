@@ -72,12 +72,8 @@ alerts.post('/alerts', async (c) => {
       })),
     );
 
-    return c.json({
-      subscribed: true,
-      email,
-      watched: sources.length,
-      baselineClones: existing.length,
-    });
+    // Return the AlertsStatus shape the web client expects.
+    return c.json({ subscribed: true, email, lastRunAt: null });
   } catch {
     return c.json({ error: 'subscribe_failed', message: 'Could not set up alerts.' }, 500);
   }
@@ -86,5 +82,5 @@ alerts.post('/alerts', async (c) => {
 alerts.delete('/alerts', async (c) => {
   const session = c.get('session');
   await deactivateSubscription(c.env, session.login);
-  return c.json({ subscribed: false });
+  return c.json({ subscribed: false, email: null, lastRunAt: null });
 });

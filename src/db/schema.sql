@@ -1,6 +1,6 @@
--- RepoSentry D1 schema. Apply with:
---   wrangler d1 execute reposentry-db --local  --file=./src/db/schema.sql
---   wrangler d1 execute reposentry-db --remote --file=./src/db/schema.sql
+-- GitHub Healthcheck D1 schema. Apply with:
+--   wrangler d1 execute github-healthcheck-db --local  --file=./src/db/schema.sql
+--   wrangler d1 execute github-healthcheck-db --remote --file=./src/db/schema.sql
 
 -- Server-side sessions. The GitHub token is stored AES-GCM encrypted (token_enc);
 -- only an opaque session id is ever placed in the browser cookie.

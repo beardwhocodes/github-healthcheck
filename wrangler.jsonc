@@ -1,9 +1,14 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "reposentry",
+  "name": "github-healthcheck",
   "main": "src/index.ts",
   "compatibility_date": "2024-12-18",
   "compatibility_flags": ["nodejs_compat"],
+
+  // Production custom domain. On deploy, wrangler provisions the DNS record and
+  // TLS cert for this hostname automatically, provided the parent zone
+  // (beardwho.codes) is active in the same Cloudflare account.
+  "routes": [{ "pattern": "github-healthcheck.beardwho.codes", "custom_domain": true }],
 
   // Serve the built React SPA (web/dist) as static assets. The Worker handles
   // /api/* and /auth/* and falls through to the SPA for everything else.
@@ -16,12 +21,12 @@
     "run_worker_first": ["/api/*", "/auth/*"]
   },
 
-  // D1: users, repo baselines, detected clones, alert subscriptions.
-  // Create with: wrangler d1 create reposentry-db  (paste the id below)
+  // D1: sessions, repo baselines, detected clones, alert subscriptions.
+  // Create with: wrangler d1 create github-healthcheck-db  (paste the id below)
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "reposentry-db",
+      "database_name": "github-healthcheck-db",
       "database_id": "REPLACE_WITH_YOUR_D1_DATABASE_ID"
     }
   ],
@@ -36,10 +41,12 @@
   },
 
   "vars": {
-    // Public, non-secret config. Secrets (GITHUB_CLIENT_SECRET, SESSION_SECRET,
-    // RESEND_API_KEY) go in .dev.vars locally and `wrangler secret put` in prod.
-    "APP_URL": "http://localhost:8787",
+    // Public, non-secret config. PRODUCTION values live here; local dev overrides
+    // APP_URL / GITHUB_CLIENT_ID via .dev.vars. Secrets (GITHUB_CLIENT_SECRET,
+    // SESSION_SECRET, RESEND_API_KEY) go in .dev.vars locally and
+    // `wrangler secret put` in prod.
+    "APP_URL": "https://github-healthcheck.beardwho.codes",
     "GITHUB_CLIENT_ID": "REPLACE_WITH_YOUR_GITHUB_OAUTH_CLIENT_ID",
-    "ALERT_FROM_EMAIL": "alerts@example.com"
+    "ALERT_FROM_EMAIL": "alerts@beardwho.codes"
   }
 }

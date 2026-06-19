@@ -35,6 +35,24 @@ describe('scoreFromFindings', () => {
     expect(bandForScore(50)).toBe('high');
     expect(bandForScore(85)).toBe('critical');
   });
+
+  it('floors a lone critical finding into the critical band', () => {
+    const one: Finding[] = [
+      { id: 'x', title: 't', severity: 'critical', detail: 'd', weight: 30 },
+    ];
+    expect(scoreFromFindings(one)).toBeGreaterThanOrEqual(70);
+    expect(bandForScore(scoreFromFindings(one))).toBe('critical');
+  });
+
+  it('floors a lone high finding into at least the elevated band', () => {
+    const one: Finding[] = [{ id: 'x', title: 't', severity: 'high', detail: 'd', weight: 10 }];
+    expect(scoreFromFindings(one)).toBeGreaterThanOrEqual(35);
+  });
+
+  it('does not floor medium/low findings', () => {
+    const one: Finding[] = [{ id: 'x', title: 't', severity: 'medium', detail: 'd', weight: 10 }];
+    expect(scoreFromFindings(one)).toBeLessThan(20);
+  });
 });
 
 describe('evaluateRepo', () => {
@@ -158,8 +176,23 @@ describe('clone detection', () => {
       sourceStars: 12,
       differentOwner: true,
     });
-    // Same-name + standalone contributes some, but with a clean report it stays
-    // well below the alerting threshold.
-    expect(confidence).toBeLessThan(50);
+    // Structural-only collision (no malware, no copied description) must be
+    // capped below the alert threshold (35) so common name clashes don't alert.
+    expect(confidence).toBeLessThanOrEqual(20);
+  });
+
+  it('still flags a different-owner copy that shares the description', () => {
+    const benign = repo({ owner: 'someoneelse', fullName: 'someoneelse/awesome-lib' });
+    const report = evaluateRepo(benign, { now: NOW });
+    const { confidence } = cloneConfidence(report, {
+      sameName: true,
+      sameDescription: true,
+      suspectIsFork: false,
+      suspectStars: 10,
+      sourceStars: 12,
+      differentOwner: true,
+    });
+    // A copied description is a genuine signal, so the cap does not apply.
+    expect(confidence).toBeGreaterThanOrEqual(45);
   });
 });

@@ -15,10 +15,12 @@ import {
 import {
   clip,
   extractUrls,
+  findBinaryFilenameTokens,
   hasExtension,
   hostnameOf,
   hoursBetween,
   isBotAuthor,
+  urlHasExtension,
 } from '../helpers.js';
 import type { Finding, RepoSnapshot } from '../types.js';
 
@@ -33,22 +35,25 @@ export type RepoRule = (repo: RepoSnapshot, ctx: RepoRuleContext) => Finding | n
 
 const README_FILE = /^readme(\.md|\.rst|\.txt)?$/i;
 
-// 1. README mentions a binary/archive at all. Low on its own, but the campaign's
-//    weaponized READMEs always reference the payload archive somewhere.
+// 1. README links to a binary/archive, or names a binary file. Low on its own,
+//    but the campaign's weaponized READMEs always reference the payload archive.
+//    Boundary-aware: a plain "github.com" link or English prose does NOT match —
+//    we look for URLs whose PATH ends in a binary extension, or real filename
+//    tokens like "Setup.exe"/"app-1.0.zip".
 export const readmeReferencesArchive: RepoRule = (repo) => {
   if (!repo.readmeText) return null;
-  const lower = repo.readmeText.toLowerCase();
-  const matched = BINARY_EXTENSIONS.filter((ext) => lower.includes(ext));
-  if (matched.length === 0) return null;
 
   const archiveUrls = extractUrls(repo.readmeText).filter((u) =>
-    hasExtension(u, BINARY_EXTENSIONS),
+    urlHasExtension(u, BINARY_EXTENSIONS),
   );
+  const fileTokens = findBinaryFilenameTokens(repo.readmeText);
+  if (archiveUrls.length === 0 && fileTokens.length === 0) return null;
 
+  const linked = archiveUrls.length > 0;
   return {
     id: 'readme-references-archive',
     title: 'README references a downloadable binary/archive',
-    severity: archiveUrls.length > 0 ? 'medium' : 'low',
+    severity: linked ? 'medium' : 'low',
     detail:
       'The README points readers at a binary or archive file. In the malware ' +
       'campaign, cloned repos keep the original code untouched and only add a ' +
@@ -57,14 +62,16 @@ export const readmeReferencesArchive: RepoRule = (repo) => {
       'If this is not your repo, do not download the archive. If it is yours, ' +
       'confirm you added these references and that they point where you expect.',
     evidence: [
-      `extensions: ${[...new Set(matched)].join(', ')}`,
+      ...(fileTokens.length > 0 ? [`files: ${fileTokens.slice(0, 3).join(', ')}`] : []),
       ...archiveUrls.slice(0, 3).map((u) => `link: ${clip(u)}`),
     ],
     weight: WEIGHTS.readmeReferencesArchive,
   };
 };
 
-// 2. README leans on download *badges* (shields.io) that resolve to an archive.
+// 2. README leans on download *badges* (shields.io) that resolve to an archive
+//    OR to a shortener/file host (the campaign points the badge at bit.ly /
+//    mega.nz just as often as a direct ZIP).
 export const readmeDownloadBadgeToArchive: RepoRule = (repo) => {
   if (!repo.readmeText) return null;
   const urls = extractUrls(repo.readmeText);
@@ -72,18 +79,26 @@ export const readmeDownloadBadgeToArchive: RepoRule = (repo) => {
     const host = hostnameOf(u);
     return host !== null && BADGE_HOSTS.some((b) => host === b || host.endsWith(`.${b}`));
   });
-  const archiveLinks = urls.filter((u) => hasExtension(u, ARCHIVE_EXTENSIONS));
-  if (!hasBadge || archiveLinks.length === 0) return null;
+  if (!hasBadge) return null;
+
+  const archiveLinks = urls.filter((u) => urlHasExtension(u, ARCHIVE_EXTENSIONS));
+  const hostedLinks = urls.filter((u) => {
+    const host = hostnameOf(u);
+    return host !== null && URL_SHORTENERS.some((s) => host === s || host.endsWith(`.${s}`));
+  });
+  const targets = [...archiveLinks, ...hostedLinks];
+  if (targets.length === 0) return null;
 
   return {
     id: 'readme-download-badge',
-    title: 'README uses download badges pointing at an archive',
+    title: 'README uses download badges pointing at a payload',
     severity: 'high',
     detail:
       'Weaponized clones replace real documentation with prominent download ' +
-      'badges (shields.io) and colored buttons that all funnel to the same ZIP.',
+      'badges (shields.io) and colored buttons that all funnel to the same ZIP ' +
+      'or to a shortener/file host hiding it.',
     remediation: 'Treat the download as untrusted; inspect the archive in a sandbox, not on your machine.',
-    evidence: archiveLinks.slice(0, 3).map((u) => `archive: ${clip(u)}`),
+    evidence: targets.slice(0, 3).map((u) => `target: ${clip(u)}`),
     weight: WEIGHTS.readmeDownloadBadgeToArchive,
   };
 };
@@ -142,10 +157,13 @@ export const readmeDownloadLure: RepoRule = (repo) => {
   if (!repo.readmeText) return null;
   const matched = DOWNLOAD_LURE_PATTERNS.filter((re) => re.test(repo.readmeText!));
   if (matched.length < 1) return null;
-  // Require a binary reference too, so a passing mention of "free" alone in a
-  // legitimate project doesn't trip this.
-  const lower = repo.readmeText.toLowerCase();
-  if (!BINARY_EXTENSIONS.some((ext) => lower.includes(ext))) return null;
+  // Require a REAL binary reference too (an archive link or a filename token),
+  // so "free to use" or "Download the docs" in a legitimate project — or a bare
+  // github.com link — doesn't trip this.
+  const hasBinary =
+    extractUrls(repo.readmeText).some((u) => urlHasExtension(u, BINARY_EXTENSIONS)) ||
+    findBinaryFilenameTokens(repo.readmeText).length > 0;
+  if (!hasBinary) return null;
 
   const phrases = repo.readmeText
     .split('\n')

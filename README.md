@@ -1,4 +1,4 @@
-# 🛡️ RepoSentry
+# 🛡️ GitHub Healthcheck
 
 **Sign in with GitHub and get a security report for your account and your repositories** —
 purpose-built to detect the malware-distribution clone campaign documented by
@@ -26,7 +26,7 @@ one thing: the README gets a single `Update README.md` commit adding a download 
 password-protected ZIP. That ZIP contains a LuaJIT loader (`loader.exe`/`unit.exe`/`boot.exe`/
 `lua51.dll` + a `.cmd` launcher) that pulls SmartLoader → StealC. The download link scans clean on
 VirusTotal (only the extracted ZIP trips antivirus). ~10,000 such repos sat undetected for over a
-year. RepoSentry encodes the exact tells the researcher used to find them.
+year. GitHub Healthcheck encodes the exact tells the researcher used to find them.
 
 ## Detection methodology
 
@@ -53,7 +53,7 @@ Account-level: brand-new account, 2FA disabled (self only), repos created in a b
 archive-pushing READMEs, many repos with near-zero social footprint. Findings combine into a
 diminishing-returns 0–100 score and a band (`safe → low → elevated → high → critical`).
 
-> RepoSentry only ever calls `api.github.com`. It analyzes README/link **text** — it never downloads
+> GitHub Healthcheck only ever calls `api.github.com`. It analyzes README/link **text** — it never downloads
 > or executes any archive, and never fetches a user-supplied URL (no SSRF surface).
 
 ---
@@ -125,15 +125,23 @@ machine (`npm run deploy` is intentionally a no-op). See `.github/workflows/depl
 typechecks, tests, builds the SPA, dry-run-bundles the Worker, applies the (idempotent) D1 schema,
 and deploys.
 
+Production runs at **https://github-healthcheck.beardwho.codes** (configured as a Worker custom
+domain in `wrangler.jsonc` → `routes`). On deploy, wrangler provisions the DNS record + TLS cert for
+that hostname automatically — provided the parent zone **`beardwho.codes`** is active in the same
+Cloudflare account and the `CLOUDFLARE_API_TOKEN` has DNS-edit permission for it.
+
 ### One-time setup
 
 1. **Create the Cloudflare resources** (once, by an admin):
    ```bash
-   npx wrangler d1 create reposentry-db   # paste the id into wrangler.jsonc → d1_databases[0].database_id
+   npx wrangler d1 create github-healthcheck-db   # paste the id into wrangler.jsonc → d1_databases[0].database_id
    ```
-2. **Set production config in `wrangler.jsonc`** `vars`: `APP_URL` (your domain), `GITHUB_CLIENT_ID`,
-   `ALERT_FROM_EMAIL`. Create a **second** GitHub OAuth App for production with the callback URL
-   `https://<your-domain>/auth/callback`.
+   Ensure `beardwho.codes` is added as a zone in the Cloudflare account (the custom domain lives under it).
+2. **Create the production GitHub OAuth App** with:
+   - Homepage URL: `https://github-healthcheck.beardwho.codes`
+   - Authorization callback URL: `https://github-healthcheck.beardwho.codes/auth/callback`
+   Put its client id into `wrangler.jsonc` → `vars.GITHUB_CLIENT_ID` (`APP_URL` and `ALERT_FROM_EMAIL`
+   are already set there for this domain).
 3. **Set Worker secrets** (persist across deploys — set once):
    ```bash
    npx wrangler secret put GITHUB_CLIENT_SECRET

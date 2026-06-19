@@ -30,13 +30,31 @@ describe('readmeReferencesArchive', () => {
     expect(f!.evidence?.some((e) => e.includes('.zip'))).toBe(true);
   });
 
-  it('is quieter when an extension is only mentioned, not linked', () => {
-    const f = readmeReferencesArchive(
-      repo({ readmeText: 'We do not ship a .exe; build from source.' }),
-      ctx,
-    );
+  it('flags a bare binary filename token in prose as low severity', () => {
+    const f = readmeReferencesArchive(repo({ readmeText: 'Run Setup.exe to install.' }), ctx);
     expect(f).not.toBeNull();
     expect(f!.severity).toBe('low');
+  });
+
+  it('does NOT flag a plain github.com link (the key false-positive fix)', () => {
+    expect(
+      readmeReferencesArchive(
+        repo({ readmeText: 'Docs at https://github.com/foo/bar and https://example.com.' }),
+        ctx,
+      ),
+    ).toBeNull();
+  });
+
+  it('does NOT flag a bare extension mention without a filename', () => {
+    expect(
+      readmeReferencesArchive(repo({ readmeText: 'We do not ship a .exe; build from source.' }), ctx),
+    ).toBeNull();
+  });
+
+  it('does NOT flag node_modules/.bin or a .so reference', () => {
+    expect(
+      readmeReferencesArchive(repo({ readmeText: 'Adds ./node_modules/.bin/eslint and links a .so' }), ctx),
+    ).toBeNull();
   });
 
   it('ignores a clean README', () => {
@@ -57,8 +75,15 @@ describe('readmeDownloadBadgeToArchive', () => {
     expect(f!.severity).toBe('high');
   });
 
-  it('does not flag a badge with no archive link', () => {
-    const readmeText = '![build](https://img.shields.io/badge/build-passing-green)';
+  it('flags a shields.io badge linking to a shortener/file host', () => {
+    const readmeText =
+      '[![Download](https://img.shields.io/badge/Get-Now-green)](https://bit.ly/abc123)';
+    expect(readmeDownloadBadgeToArchive(repo({ readmeText }), ctx)).not.toBeNull();
+  });
+
+  it('does not flag a build/coverage badge with no payload link', () => {
+    const readmeText =
+      '![build](https://img.shields.io/badge/build-passing-green) and docs at https://github.com/o/r';
     expect(readmeDownloadBadgeToArchive(repo({ readmeText }), ctx)).toBeNull();
   });
 });

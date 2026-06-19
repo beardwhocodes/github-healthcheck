@@ -51,10 +51,12 @@ export function App() {
         <UserChip me={me} onSignOut={() => setMe(null)} />
       </header>
       <div className="container">
-        <div className="tabs">
+        <div className="tabs" role="tablist" aria-label="Report sections">
           {TABS.map((t) => (
             <button
               key={t.id}
+              role="tab"
+              aria-selected={tab === t.id}
               className={`tab ${tab === t.id ? 'active' : ''}`}
               onClick={() => setTab(t.id)}
             >
@@ -77,7 +79,7 @@ function Brand() {
     <div className="brand">
       <span className="logo">🛡️</span>
       <div>
-        RepoSentry
+        GitHub Healthcheck
         <small>GitHub malware &amp; clone scanner</small>
       </div>
     </div>
