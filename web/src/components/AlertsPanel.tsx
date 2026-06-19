@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 
 import { ApiError, api } from '../api.js';
 import type { AlertsStatus } from '../api.js';
+import { mailProviderFor } from '../mailProvider.js';
 import { timeAgo } from '../ui.js';
 
 export function AlertsPanel() {
@@ -79,6 +80,21 @@ export function AlertsPanel() {
             ✉️ Almost there — we emailed a confirmation link to <b>{status?.email}</b>. Click it to
             switch alerts on. (No email after a minute? Check spam, or re-enter your address below.)
           </div>
+          {(() => {
+            const provider = status?.email ? mailProviderFor(status.email) : null;
+            return provider ? (
+              <a
+                className="btn mt16"
+                href={provider.url}
+                target="_blank"
+                rel="noreferrer noopener"
+                style={{ display: 'inline-flex', textDecoration: 'none' }}
+              >
+                Open {provider.name}
+                {provider.search ? ' — find the email' : ''} ↗
+              </a>
+            ) : null;
+          })()}
           <div className="input-row mt16">
             <input
               type="email"
