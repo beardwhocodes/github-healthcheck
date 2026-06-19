@@ -10,23 +10,31 @@ import type { Env } from '../../src/env.js';
 import { encrypt, randomToken } from '../../src/auth/crypto.js';
 import { getUser, upsertUserOnLogin } from '../../src/users/store.js';
 import { listActiveSubscriptions } from '../../src/alerts/store.js';
-// Raw schema text, applied verbatim so the tests exercise the real tables.
-import schemaSql from '../../src/db/schema.sql?raw';
 
 const DB = (env as unknown as { DB: D1Database }).DB;
 const SESSION_SECRET = (env as unknown as { SESSION_SECRET: string }).SESSION_SECRET;
 const appEnv = env as unknown as Env;
 
-// Strip SQL comments (some contain example statements with semicolons), then run
-// each CREATE individually.
-async function applySchema(): Promise<void> {
-  const statements = schemaSql
-    .replace(/--[^\n]*/g, '')
-    .split(';')
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-  for (const stmt of statements) {
-    await DB.prepare(stmt).run();
+// The real migration SQL, applied in filename order — exactly what
+// `wrangler d1 migrations apply` runs — so the tests exercise the true schema.
+const migrationModules = import.meta.glob('../../migrations/*.sql', {
+  query: '?raw',
+  import: 'default',
+  eager: true,
+}) as Record<string, string>;
+
+async function applyMigrations(): Promise<void> {
+  for (const file of Object.keys(migrationModules).sort()) {
+    const sql = migrationModules[file];
+    if (!sql) continue;
+    const statements = sql
+      .replace(/--[^\n]*/g, '') // strip comments (defensive; baseline has none with ';')
+      .split(';')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+    for (const stmt of statements) {
+      await DB.prepare(stmt).run();
+    }
   }
 }
 
@@ -79,7 +87,7 @@ function url(path: string): string {
 }
 
 beforeEach(async () => {
-  await applySchema();
+  await applyMigrations();
 });
 
 describe('authentication gate', () => {

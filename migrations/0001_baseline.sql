@@ -1,6 +1,15 @@
--- GitHub Healthcheck D1 schema. Apply with:
---   wrangler d1 execute github-healthcheck-db --local  --file=./src/db/schema.sql
---   wrangler d1 execute github-healthcheck-db --remote --file=./src/db/schema.sql
+-- Baseline migration: the full schema as of the admin back-end.
+--
+-- Applied by `wrangler d1 migrations apply` (locally and in CI), which records
+-- each migration in the d1_migrations table and runs it exactly once. Every
+-- statement here is idempotent (CREATE ... IF NOT EXISTS) so this baseline can
+-- safely ADOPT the pre-existing production database — which already has all of
+-- these tables — on the first `migrations apply` without erroring. Fresh
+-- databases get the complete, current schema (including the alert_subscriptions
+-- double opt-in columns, which previously had to be added by a manual ALTER).
+--
+-- Future schema changes go in NEW numbered files (e.g. 0002_*.sql) as plain
+-- ALTER/CREATE statements; the migration runner guarantees they apply once.
 
 -- Server-side sessions. The GitHub token is stored AES-GCM encrypted (token_enc);
 -- only an opaque session id is ever placed in the browser cookie.
@@ -20,15 +29,6 @@ CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions (expires_at);
 -- Double opt-in: a subscription is only emailed once `verified = 1`. The
 -- verify/unsubscribe tokens are unguessable capability tokens used by the public
 -- (no-login) /email/* routes.
---
--- NOTE on migrations: this file is re-applied verbatim by CI on every deploy, so
--- it contains only idempotent CREATE ... IF NOT EXISTS. A pre-existing
--- alert_subscriptions table (created before the verification columns were added)
--- must be upgraded ONCE, out of band, with:
---   ALTER TABLE alert_subscriptions ADD COLUMN verified INTEGER NOT NULL DEFAULT 0;
---   ALTER TABLE alert_subscriptions ADD COLUMN verify_token TEXT;
---   ALTER TABLE alert_subscriptions ADD COLUMN unsubscribe_token TEXT;
---   ALTER TABLE alert_subscriptions ADD COLUMN verified_at INTEGER;
 CREATE TABLE IF NOT EXISTS alert_subscriptions (
   login             TEXT PRIMARY KEY,
   email             TEXT NOT NULL,
@@ -64,14 +64,10 @@ CREATE TABLE IF NOT EXISTS known_clones (
 CREATE INDEX IF NOT EXISTS idx_known_clones_login ON known_clones (login);
 
 -- ── Admin back-end ─────────────────────────────────────────────────────────
--- These tables are all new (no destructive ALTER), so CI re-applying this file
--- verbatim is safe. Sessions remain ephemeral; `users` is the durable identity
--- record, upserted whenever someone signs in or runs a scan.
 
 -- One row per GitHub account that has ever signed in. `role` gates the admin
--- dashboard; a non-null `suspended_at` blocks scanning (but not sign-in, so the
--- person can read why and contact support). The bootstrap admin (see
--- src/admin/constants.ts) is always re-promoted to 'admin' on sign-in.
+-- dashboard; a non-null `suspended_at` blocks scanning (but not sign-in). The
+-- bootstrap admin (src/admin/constants.ts) is always re-promoted on sign-in.
 CREATE TABLE IF NOT EXISTS users (
   login            TEXT PRIMARY KEY,
   name             TEXT,
