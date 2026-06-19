@@ -1,0 +1,45 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "reposentry",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-12-18",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Serve the built React SPA (web/dist) as static assets. The Worker handles
+  // /api/* and /auth/* and falls through to the SPA for everything else.
+  "assets": {
+    "directory": "./web/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    // Always route API/auth to the Worker first; everything else is served as a
+    // static asset (or the SPA shell for client-side routes).
+    "run_worker_first": ["/api/*", "/auth/*"]
+  },
+
+  // D1: users, repo baselines, detected clones, alert subscriptions.
+  // Create with: wrangler d1 create reposentry-db  (paste the id below)
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "reposentry-db",
+      "database_id": "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+    }
+  ],
+
+  // Recurring re-scan that powers future-impersonation alerts (daily 07:00 UTC).
+  "triggers": {
+    "crons": ["0 7 * * *"]
+  },
+
+  "observability": {
+    "enabled": true
+  },
+
+  "vars": {
+    // Public, non-secret config. Secrets (GITHUB_CLIENT_SECRET, SESSION_SECRET,
+    // RESEND_API_KEY) go in .dev.vars locally and `wrangler secret put` in prod.
+    "APP_URL": "http://localhost:8787",
+    "GITHUB_CLIENT_ID": "REPLACE_WITH_YOUR_GITHUB_OAUTH_CLIENT_ID",
+    "ALERT_FROM_EMAIL": "alerts@example.com"
+  }
+}
