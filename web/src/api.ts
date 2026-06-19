@@ -37,6 +37,8 @@ export interface ClonesResponse {
 
 export interface AlertsStatus {
   subscribed: boolean;
+  // Subscribed but the email hasn't been confirmed yet (double opt-in pending).
+  pending?: boolean;
   email: string | null;
   lastRunAt: number | null;
 }

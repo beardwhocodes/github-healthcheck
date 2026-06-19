@@ -27,7 +27,7 @@ export function AlertsPanel() {
       const res = await api.subscribe(email.trim());
       setStatus(res);
       setNotice(
-        'Alerts enabled. We recorded your current clones as a baseline and will email you only when a NEW one appears.',
+        'Almost done — confirm your email to switch alerts on. We recorded your current clones as a baseline, so you\'ll only be emailed about NEW ones.',
       );
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not enable alerts.');
@@ -50,6 +50,7 @@ export function AlertsPanel() {
   }
 
   const subscribed = status?.subscribed === true;
+  const pending = status?.pending === true;
 
   return (
     <div className="card">
@@ -70,6 +71,29 @@ export function AlertsPanel() {
           </div>
           <button className="btn danger mt16" onClick={unsubscribe} disabled={busy}>
             {busy ? <span className="spinner" /> : 'Turn off alerts'}
+          </button>
+        </div>
+      ) : pending ? (
+        <div className="mt8">
+          <div className="banner info">
+            ✉️ Almost there — we emailed a confirmation link to <b>{status?.email}</b>. Click it to
+            switch alerts on. (No email after a minute? Check spam, or re-enter your address below.)
+          </div>
+          <div className="input-row mt16">
+            <input
+              type="email"
+              placeholder="you@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && subscribe()}
+              aria-label="Email for impersonation alerts"
+            />
+            <button className="btn ghost" onClick={subscribe} disabled={busy || !email.trim()}>
+              {busy ? <span className="spinner" /> : 'Resend link'}
+            </button>
+          </div>
+          <button className="btn danger mt16" onClick={unsubscribe} disabled={busy}>
+            {busy ? <span className="spinner" /> : 'Cancel'}
           </button>
         </div>
       ) : (

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { ApiError, api } from './api.js';
 import type { Me, SelfReportResponse } from './api.js';
@@ -8,6 +8,8 @@ import { ClonesPanel } from './components/ClonesPanel.js';
 import { Footer } from './components/Footer.js';
 import { Landing } from './components/Landing.js';
 import { ScanAnyPanel } from './components/ScanAnyPanel.js';
+import { clearCachedReport, readCachedReport, writeCachedReport } from './reportCache.js';
+import { timeAgo } from './ui.js';
 
 type Tab = 'self' | 'clones' | 'scan' | 'alerts';
 
@@ -67,7 +69,7 @@ export function App() {
           ))}
         </div>
 
-        {tab === 'self' && <SelfReport />}
+        {tab === 'self' && <SelfReport login={me.login} />}
         {tab === 'clones' && <ClonesPanel />}
         {tab === 'scan' && <ScanAnyPanel />}
         {tab === 'alerts' && <AlertsPanel />}
@@ -91,6 +93,7 @@ function Brand() {
 
 function UserChip({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
   async function signOut() {
+    clearCachedReport();
     await api.logout().catch(() => {});
     onSignOut();
   }
@@ -105,25 +108,41 @@ function UserChip({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
   );
 }
 
-function SelfReport() {
+function SelfReport({ login }: { login: string }) {
   const [data, setData] = useState<SelfReportResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [fetchedAt, setFetchedAt] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
+  const runScan = useCallback(async () => {
     setLoading(true);
-    api
-      .selfReport()
-      .then((d) => !cancelled && setData(d))
-      .catch((err) => !cancelled && setError(err instanceof ApiError ? err.message : 'Scan failed.'))
-      .finally(() => !cancelled && setLoading(false));
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    setError(null);
+    try {
+      const d = await api.selfReport();
+      setData(d);
+      setFetchedAt(writeCachedReport(login, d));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Scan failed.');
+    } finally {
+      setLoading(false);
+    }
+  }, [login]);
 
-  if (loading) {
+  // On mount: show the cached report instantly if present; only scan when the
+  // cache is missing or stale (older than the TTL). Tab switches and reloads
+  // therefore reuse the last result instead of rescanning every time.
+  useEffect(() => {
+    const cached = readCachedReport(login);
+    if (cached) {
+      setData(cached.data);
+      setFetchedAt(cached.fetchedAt);
+      if (cached.stale) void runScan();
+    } else {
+      void runScan();
+    }
+  }, [login, runScan]);
+
+  if (loading && !data) {
     return (
       <div className="center-state">
         <span className="spinner" /> Scanning your account and repositories…
@@ -131,10 +150,29 @@ function SelfReport() {
       </div>
     );
   }
-  if (error) {
+  if (error && !data) {
     return <div className="banner error">{error}</div>;
   }
   if (!data) return null;
 
-  return <AccountReportView report={data.report} scanned={data.scanned} totalRepos={data.totalRepos} />;
+  return (
+    <div>
+      <div className="row-between" style={{ marginBottom: 12 }}>
+        <span className="muted small">
+          {loading ? 'Rescanning…' : `Scanned ${timeAgo(fetchedAt ? new Date(fetchedAt).toISOString() : null)}`}
+          <span className="faint"> · cached for 30 min</span>
+        </span>
+        <button
+          className="btn ghost small"
+          style={{ padding: '6px 12px' }}
+          onClick={() => void runScan()}
+          disabled={loading}
+        >
+          {loading ? <span className="spinner" /> : '↻ Rescan'}
+        </button>
+      </div>
+      {error && <div className="banner error" style={{ marginBottom: 12 }}>{error}</div>}
+      <AccountReportView report={data.report} scanned={data.scanned} totalRepos={data.totalRepos} />
+    </div>
+  );
 }
