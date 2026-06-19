@@ -83,6 +83,22 @@ export function isBotAuthor(authorName: string): boolean {
   return BOT_AUTHOR_PATTERNS.some((re) => re.test(authorName));
 }
 
+// GitHub-hosted download hosts (releases, raw, codeload). A link to a project's
+// own GitHub release is legitimate, scannable distribution — NOT the campaign's
+// shortener/file-host pattern — so these URLs do not "arm" the tampering gate.
+const GITHUB_HOSTS = [
+  'github.com',
+  'codeload.github.com',
+  'objects.githubusercontent.com',
+  'raw.githubusercontent.com',
+  'release-assets.githubusercontent.com',
+];
+
+export function isGithubHostedUrl(url: string): boolean {
+  const host = hostnameOf(url);
+  return host !== null && GITHUB_HOSTS.some((h) => host === h || host.endsWith(`.${h}`));
+}
+
 // Whole-days difference between an ISO date and `now` (defaults to current time).
 // Pure given an explicit `now`, which the tests always provide.
 export function daysBetween(iso: string, now: number): number {

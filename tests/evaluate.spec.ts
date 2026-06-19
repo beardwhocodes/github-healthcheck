@@ -8,7 +8,21 @@ import {
 } from '../src/engine/evaluate.js';
 import { bandForScore, scoreFromFindings } from '../src/engine/score.js';
 import type { Finding } from '../src/engine/types.js';
-import { NOW, account, daysAgoIso, repo, weaponizedClone } from './fixtures.js';
+import { NOW, account, commit, daysAgoIso, repo, weaponizedClone } from './fixtures.js';
+
+// A repo that trips ALL FOUR README-tampering signals but has NO payload — the
+// dominant false-positive class (the owner just updated their own README).
+function benignReadmeOnlyRepo(readmeText = '# My Project\n\nA useful tool. MIT licensed.') {
+  return repo({
+    isFork: false,
+    contributorsCount: 6,
+    readmeText,
+    recentCommits: [
+      commit({ message: 'Update README.md', authorLogin: 'me', authorName: 'me', authorDate: daysAgoIso(1), changedFiles: ['README.md'] }),
+      commit({ message: 'Update README.md', authorLogin: 'me', authorName: 'me', authorDate: daysAgoIso(400), sha: 'b'.repeat(40), changedFiles: ['README.md'] }),
+    ],
+  });
+}
 
 describe('scoreFromFindings', () => {
   it('is 0 with no findings', () => {
@@ -61,6 +75,47 @@ describe('evaluateRepo', () => {
     expect(report.findings).toHaveLength(0);
     expect(report.band).toBe('safe');
     expect(report.score).toBe(0);
+  });
+
+  it('does NOT flag a benign README-only update as high (payload-gating)', () => {
+    // The production false-positive: "Update README.md" on a dormant repo with
+    // no download link. All four tampering signals fire but stay demoted.
+    const report = evaluateRepo(benignReadmeOnlyRepo(), { now: NOW });
+    expect(['safe', 'low']).toContain(report.band);
+    expect(report.score).toBeLessThan(25); // below the 'elevated' cutoff
+    // The findings are still VISIBLE (as informational low) for human review.
+    const ids = report.findings.map((f) => f.id);
+    expect(ids).toContain('latest-commit-only-readme');
+    expect(report.findings.find((f) => f.id === 'latest-commit-only-readme')!.severity).toBe('low');
+  });
+
+  it('all four tampering signals without a payload stay below elevated', () => {
+    const report = evaluateRepo(benignReadmeOnlyRepo(), { now: NOW });
+    const tamperingIds = ['latest-commit-only-readme', 'trivial-readme-commit-message', 'stale-code-fresh-readme', 'cloned-history-single-pusher'];
+    const fired = report.findings.filter((f) => tamperingIds.includes(f.id));
+    expect(fired.length).toBe(4); // all four fire...
+    expect(fired.every((f) => f.severity === 'low')).toBe(true); // ...but demoted
+    expect(report.score).toBeLessThan(25);
+  });
+
+  it('ARMS the tampering signals when an external download link is present', () => {
+    const report = evaluateRepo(
+      benignReadmeOnlyRepo('# My Project\n\nDownload: https://evilhost.example/setup.zip'),
+      { now: NOW },
+    );
+    expect(['high', 'critical']).toContain(report.band);
+    expect(report.score).toBeGreaterThanOrEqual(45);
+    // Now the tampering signals are restored to full strength.
+    expect(report.findings.find((f) => f.id === 'latest-commit-only-readme')!.severity).toBe('high');
+  });
+
+  it('a GitHub release link does NOT arm the gate (legit distribution)', () => {
+    const report = evaluateRepo(
+      benignReadmeOnlyRepo('# My Project\n\nDownload: https://github.com/me/proj/releases/download/v1/proj.zip'),
+      { now: NOW },
+    );
+    expect(['safe', 'low']).toContain(report.band);
+    expect(report.score).toBeLessThan(25);
   });
 
   it('rates the canonical weaponized clone as critical', () => {
