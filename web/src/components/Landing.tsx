@@ -56,8 +56,11 @@ export function Landing() {
           </label>
         </div>
         <p className="faint small mt16">
-          We request read-only access{includePrivate ? ' (incl. private repos)' : ' to public repos'}.
-          Your token is encrypted at rest and never leaves our server.
+          {includePrivate
+            ? 'Including private repos requires the broad `repo` scope (GitHub OAuth has no read-only private option) — uncheck to stay public-only with minimal access.'
+            : 'We request minimal read-only access to your public repositories.'}{' '}
+          Your token is encrypted at rest and used only server-side to query GitHub on your behalf —
+          it is never exposed to your browser or any third party.
         </p>
       </div>
 

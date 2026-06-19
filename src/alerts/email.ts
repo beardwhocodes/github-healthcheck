@@ -7,14 +7,16 @@ export async function sendImpersonationAlert(
   env: Env,
   args: { to: string; login: string; matches: CloneMatch[] },
 ): Promise<{ sent: boolean }> {
-  const subject = `RepoSentry: ${args.matches.length} new possible clone${
+  const subject = `GitHub Healthcheck: ${args.matches.length} new possible clone${
     args.matches.length === 1 ? '' : 's'
   } of your repositories`;
   const html = renderAlertHtml(args.login, args.matches, env.APP_URL);
   const text = renderAlertText(args.login, args.matches, env.APP_URL);
 
   if (!env.RESEND_API_KEY) {
-    console.log(`[alert] ${args.to}: ${subject}\n${text}`);
+    // No email provider configured (e.g. local dev). Log only a count — not the
+    // recipient address or the repo list — so logs don't accumulate PII.
+    console.log(`[alert] would email ${args.matches.length} new clone(s) (RESEND_API_KEY unset)`);
     return { sent: false };
   }
 
@@ -25,7 +27,7 @@ export async function sendImpersonationAlert(
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      from: `RepoSentry <${env.ALERT_FROM_EMAIL}>`,
+      from: `GitHub Healthcheck <${env.ALERT_FROM_EMAIL}>`,
       to: [args.to],
       subject,
       html,
@@ -40,7 +42,7 @@ function renderAlertText(login: string, matches: CloneMatch[], appUrl: string): 
   const lines = [
     `Hi ${login},`,
     '',
-    `RepoSentry found ${matches.length} new repositor${matches.length === 1 ? 'y' : 'ies'} that may be malicious clones of your work:`,
+    `GitHub Healthcheck found ${matches.length} new repositor${matches.length === 1 ? 'y' : 'ies'} that may be malicious clones of your work:`,
     '',
   ];
   for (const m of matches) {
@@ -73,12 +75,12 @@ function renderAlertHtml(login: string, matches: CloneMatch[], appUrl: string): 
 
   return `<!doctype html><html><body style="font-family:system-ui,sans-serif;color:#111;background:#f8fafc;padding:24px">
     <div style="max-width:560px;margin:0 auto;background:#fff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden">
-      <div style="background:#0f172a;color:#fff;padding:16px 20px;font-weight:700">RepoSentry alert</div>
+      <div style="background:#0f172a;color:#fff;padding:16px 20px;font-weight:700">GitHub Healthcheck alert</div>
       <div style="padding:20px">
         <p>Hi ${escapeHtml(login)},</p>
         <p>We found <strong>${matches.length}</strong> new repositor${matches.length === 1 ? 'y' : 'ies'} that may be malicious clones of your work.</p>
         <table style="width:100%;border-collapse:collapse;margin:12px 0">${rows}</table>
-        <a href="${escapeHtml(appUrl)}" style="display:inline-block;background:#2563eb;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none;font-weight:600">Review in RepoSentry</a>
+        <a href="${escapeHtml(appUrl)}" style="display:inline-block;background:#2563eb;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none;font-weight:600">Review in GitHub Healthcheck</a>
         <p style="color:#666;font-size:13px;margin-top:16px">Report confirmed impersonations at github.com/contact/report-abuse.</p>
       </div>
     </div>

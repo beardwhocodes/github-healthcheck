@@ -15,7 +15,13 @@ import { sendImpersonationAlert } from './email.js';
 // Daily re-scan: for each active subscriber, re-run clone detection over their
 // watched repos, diff against the known baseline, and email only the NEW ones.
 export async function runImpersonationScan(env: Env, now: number): Promise<void> {
-  const subscriptions = await listActiveSubscriptions(env);
+  let subscriptions;
+  try {
+    subscriptions = await listActiveSubscriptions(env);
+  } catch (err) {
+    console.log(`[cron] could not load subscriptions: ${String(err)}`);
+    return;
+  }
 
   for (const sub of subscriptions) {
     try {

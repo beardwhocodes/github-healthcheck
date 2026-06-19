@@ -81,7 +81,9 @@ export async function findClonesForRepo(
     .sort((a, b) => b.confidence - a.confidence);
 }
 
-// Scan several source repos for clones (used by the on-demand route).
+// Scan several source repos for clones (used by the on-demand route). The same
+// suspect repo can surface for more than one source; keep the highest-confidence
+// match per suspect so the report has no duplicate rows.
 export async function findClonesForRepos(
   client: GitHubClient,
   sources: { owner: string; fullName: string; description: string | null; stargazers: number }[],
@@ -90,5 +92,15 @@ export async function findClonesForRepos(
   const perRepo = await mapWithConcurrency(sources, 2, (source) =>
     findClonesForRepo(client, source, opts),
   );
-  return perRepo.flat().sort((a, b) => b.confidence - a.confidence);
+
+  const bySuspect = new Map<string, CloneMatch>();
+  for (const match of perRepo.flat()) {
+    const key = match.suspectRepo.toLowerCase();
+    const existing = bySuspect.get(key);
+    if (!existing || match.confidence > existing.confidence) {
+      bySuspect.set(key, match);
+    }
+  }
+
+  return [...bySuspect.values()].sort((a, b) => b.confidence - a.confidence);
 }

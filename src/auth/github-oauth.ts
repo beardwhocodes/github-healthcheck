@@ -84,7 +84,7 @@ oauth.get('/callback', async (c) => {
     headers: {
       Authorization: `Bearer ${tokenJson.access_token}`,
       Accept: 'application/vnd.github+json',
-      'User-Agent': 'RepoSentry',
+      'User-Agent': 'GitHub-Healthcheck',
       'X-GitHub-Api-Version': '2022-11-28',
     },
   });

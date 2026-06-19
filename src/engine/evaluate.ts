@@ -126,14 +126,30 @@ export function cloneConfidence(report: RepoReport, signals: CloneSignals): {
     confidence += 15;
     reasons.push('published as a standalone repo, not a GitHub fork');
   }
-  // The suspect's own malware report is the dominant factor.
-  confidence += Math.round(report.score * 0.5);
-  if (report.score > 0) {
-    reasons.push(`malware indicators on the copy (risk ${report.score}/100)`);
+
+  // The suspect's own MALWARE report is the dominant factor — but exclude the
+  // 'not-fork-but-duplicate' finding, which is itself a same-name structural
+  // signal (counting it would double-count and let a benign name collision
+  // bootstrap its own "malware" score).
+  const malwareScore = scoreFromFindings(
+    report.findings.filter((f) => f.id !== 'not-fork-but-duplicate'),
+  );
+  confidence += Math.round(malwareScore * 0.5);
+  if (malwareScore > 0) {
+    reasons.push(`malware indicators on the copy (risk ${malwareScore}/100)`);
   }
+
   // A copy with far fewer stars than the original is the expected direction.
   if (signals.suspectStars < signals.sourceStars && signals.sourceStars > 0) {
     confidence += 5;
+  }
+
+  // Structural-only matches (a shared name with no genuine content/malware
+  // signal) must not clear the alert threshold — repo name collisions are
+  // extremely common on GitHub. Require either a malware signal or a copied
+  // description to be considered a real impersonation.
+  if (malwareScore === 0 && !signals.sameDescription) {
+    confidence = Math.min(confidence, 20);
   }
 
   return { confidence: Math.min(100, confidence), reasons };

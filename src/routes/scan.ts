@@ -146,8 +146,9 @@ export function parseTarget(input: string): Target | null {
 function errorResponse(c: Context<{ Bindings: Env; Variables: Vars }>, err: unknown): Response {
   if (err instanceof GitHubApiError) {
     if (err.status === 404) return c.json({ error: 'not_found', message: 'That repository or account was not found (or is private).' }, 404);
-    if (err.status === 429) return c.json({ error: 'rate_limited', message: err.message }, 429);
-    return c.json({ error: 'github_error', message: err.message }, 502);
+    if (err.status === 429) return c.json({ error: 'rate_limited', message: 'GitHub rate limit reached — please try again shortly.' }, 429);
+    // Don't reflect the internal API path/message back to the client.
+    return c.json({ error: 'github_error', message: 'GitHub could not complete that request.' }, 502);
   }
   return c.json({ error: 'scan_failed', message: 'The scan could not be completed.' }, 500);
 }

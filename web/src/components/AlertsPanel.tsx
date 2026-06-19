@@ -4,9 +4,9 @@ import { ApiError, api } from '../api.js';
 import type { AlertsStatus } from '../api.js';
 import { timeAgo } from '../ui.js';
 
-export function AlertsPanel({ defaultEmail }: { defaultEmail?: string }) {
+export function AlertsPanel() {
   const [status, setStatus] = useState<AlertsStatus | null>(null);
-  const [email, setEmail] = useState(defaultEmail ?? '');
+  const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);

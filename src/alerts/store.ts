@@ -16,7 +16,11 @@ export async function upsertSubscription(
   await env.DB.prepare(
     `INSERT INTO alert_subscriptions (login, email, token_enc, active, created_at)
      VALUES (?, ?, ?, 1, ?)
-     ON CONFLICT(login) DO UPDATE SET email = excluded.email, token_enc = excluded.token_enc, active = 1`,
+     ON CONFLICT(login) DO UPDATE SET
+       email = excluded.email,
+       token_enc = excluded.token_enc,
+       active = 1,
+       last_run_at = NULL`,
   )
     .bind(args.login, args.email, args.tokenEnc, args.now)
     .run();
@@ -44,10 +48,17 @@ export async function getSubscription(env: Env, login: string): Promise<Subscrip
   };
 }
 
+// Unsubscribe: deactivate AND erase the stored GitHub token (we no longer need
+// it, and a dormant encrypted token is needless exposure). Watched repos and the
+// clone baseline are cleared too so nothing keeps running for this user.
 export async function deactivateSubscription(env: Env, login: string): Promise<void> {
-  await env.DB.prepare(`UPDATE alert_subscriptions SET active = 0 WHERE login = ?`)
-    .bind(login)
-    .run();
+  await env.DB.batch([
+    env.DB.prepare(
+      `UPDATE alert_subscriptions SET active = 0, token_enc = '' WHERE login = ?`,
+    ).bind(login),
+    env.DB.prepare(`DELETE FROM watched_repos WHERE login = ?`).bind(login),
+    env.DB.prepare(`DELETE FROM known_clones WHERE login = ?`).bind(login),
+  ]);
 }
 
 export async function listActiveSubscriptions(env: Env): Promise<Subscription[]> {
