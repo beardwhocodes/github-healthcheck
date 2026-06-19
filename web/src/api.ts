@@ -17,6 +17,120 @@ export interface Me {
   avatarUrl: string;
   scopes: string;
   includesPrivate: boolean;
+  isAdmin: boolean;
+  suspended: boolean;
+  suspendedReason: string | null;
+}
+
+// ── Admin + support domain types (mirror the Worker responses) ─────────────
+export type Role = 'user' | 'admin';
+export type MessageStatus = 'open' | 'read' | 'resolved';
+export type ReportStatus = 'reported' | 'reviewing' | 'confirmed' | 'dismissed' | 'takendown';
+export type AbuseCategory = 'malware' | 'impersonation';
+export type VelocityBand = 'normal' | 'warn' | 'abuse';
+
+export interface ContactMessage {
+  id: string;
+  login: string;
+  email: string | null;
+  subject: string;
+  body: string;
+  status: MessageStatus;
+  adminReply: string | null;
+  repliedAt: number | null;
+  createdAt: number;
+}
+
+// The durable user record as the server stores it (matches UserRecord). The
+// single-user detail endpoint returns exactly this.
+export interface AdminUserBase {
+  login: string;
+  name: string | null;
+  avatarUrl: string | null;
+  role: Role;
+  suspendedAt: number | null;
+  suspendedReason: string | null;
+  suspendedBy: string | null;
+  includesPrivate: number;
+  scanCount: number;
+  firstSeenAt: number;
+  lastSeenAt: number;
+}
+
+// A row in the admin Users LIST, augmented by the server with the trailing-24h
+// scan count and its velocity band. These two fields are list-only.
+export interface AdminUser extends AdminUserBase {
+  recentScans: number;
+  velocity: VelocityBand;
+}
+
+export interface ScanLogItem {
+  kind: string;
+  target: string | null;
+  topScore: number | null;
+  createdAt: number;
+}
+
+export interface AdminReport {
+  id: string;
+  reporterLogin: string;
+  suspectRepo: string;
+  suspectUrl: string | null;
+  sourceRepo: string | null;
+  confidence: number | null;
+  category: AbuseCategory | null;
+  status: ReportStatus;
+  adminNotes: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface AuditEntry {
+  id: string;
+  adminLogin: string;
+  action: string;
+  target: string | null;
+  detail: string | null;
+  createdAt: number;
+}
+
+export interface DayCount {
+  day: string;
+  count: number;
+}
+
+export interface AdminStats {
+  generatedAt: number;
+  users: {
+    total: number;
+    suspended: number;
+    admins: number;
+    active7d: number;
+    active30d: number;
+    new7d: number;
+    newToday: number;
+  };
+  scans: {
+    total: number;
+    last24h: number;
+    last7d: number;
+    byKind: Record<string, number>;
+    perDay: DayCount[];
+  };
+  messages: { open: number; read: number; resolved: number; total: number };
+  reports: {
+    total: number;
+    byStatus: Record<string, number>;
+    topReported: { suspectRepo: string; reporters: number }[];
+  };
+}
+
+export interface ReportLogInput {
+  suspectRepo: string;
+  suspectUrl?: string | null;
+  sourceRepo?: string | null;
+  confidence?: number | null;
+  category?: AbuseCategory | null;
 }
 
 export interface SelfReportResponse {
@@ -41,6 +155,10 @@ export interface AlertsStatus {
   pending?: boolean;
   email: string | null;
   lastRunAt: number | null;
+  // Only present on the POST (subscribe) response: whether the confirmation
+  // email actually sent. false means the subscription is pending but we couldn't
+  // email the link.
+  verificationSent?: boolean;
 }
 
 export class ApiError extends Error {
@@ -91,6 +209,51 @@ export const api = {
   subscribe: (email: string) => send<AlertsStatus>('/api/alerts', 'POST', { email }),
   unsubscribe: () => send<AlertsStatus>('/api/alerts', 'DELETE'),
   logout: () => send<{ ok: boolean }>('/auth/logout', 'POST'),
+
+  // Support / reporting (any signed-in user).
+  submitContact: (input: { subject: string; body: string; email?: string }) =>
+    send<{ ok: boolean; id: string }>('/api/contact', 'POST', input),
+  myMessages: () => get<{ messages: ContactMessage[] }>('/api/contact'),
+  reportRepo: (input: ReportLogInput) => send<{ ok: boolean }>('/api/reports', 'POST', input),
+
+  // Admin surface (server returns 404 to non-admins).
+  admin: {
+    stats: () => get<AdminStats>('/api/admin/stats'),
+    users: (params?: { query?: string; status?: string }) => {
+      const qs = new URLSearchParams();
+      if (params?.query) qs.set('query', params.query);
+      if (params?.status && params.status !== 'all') qs.set('status', params.status);
+      const suffix = qs.toString() ? `?${qs}` : '';
+      return get<{ users: AdminUser[] }>(`/api/admin/users${suffix}`);
+    },
+    user: (login: string) =>
+      get<{ user: AdminUserBase; recentScans: ScanLogItem[] }>(
+        `/api/admin/users/${encodeURIComponent(login)}`,
+      ),
+    suspend: (login: string, reason: string) =>
+      send<{ user: AdminUser }>(`/api/admin/users/${encodeURIComponent(login)}/suspend`, 'POST', {
+        reason,
+      }),
+    unsuspend: (login: string) =>
+      send<{ user: AdminUser }>(`/api/admin/users/${encodeURIComponent(login)}/unsuspend`, 'POST'),
+    setRole: (login: string, role: Role) =>
+      send<{ user: AdminUser }>(`/api/admin/users/${encodeURIComponent(login)}/role`, 'POST', {
+        role,
+      }),
+    messages: (status?: string) =>
+      get<{ messages: ContactMessage[] }>(
+        `/api/admin/messages${status && status !== 'all' ? `?status=${status}` : ''}`,
+      ),
+    updateMessage: (id: string, patch: { status?: MessageStatus; reply?: string }) =>
+      send<{ message: ContactMessage }>(`/api/admin/messages/${encodeURIComponent(id)}`, 'POST', patch),
+    reports: (status?: string) =>
+      get<{ reports: AdminReport[] }>(
+        `/api/admin/reports${status && status !== 'all' ? `?status=${status}` : ''}`,
+      ),
+    updateReport: (id: string, patch: { status?: ReportStatus; notes?: string }) =>
+      send<{ report: AdminReport }>(`/api/admin/reports/${encodeURIComponent(id)}`, 'POST', patch),
+    audit: (limit = 100) => get<{ entries: AuditEntry[] }>(`/api/admin/audit?limit=${limit}`),
+  },
 };
 
 export function loginUrl(includePrivate: boolean): string {

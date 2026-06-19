@@ -126,6 +126,60 @@ export async function sendImpersonationAlert(
   return send(env, { to: args.to, subject, html, text, headers: unsubscribeHeaders(unsub) });
 }
 
+// Sent when an admin replies to a support-inbox message.
+export async function sendContactReply(
+  env: Env,
+  args: { to: string; login: string; subject: string; reply: string },
+): Promise<{ sent: boolean }> {
+  const subject = `Re: ${args.subject}`;
+  const text = [
+    `Hi ${args.login},`,
+    '',
+    args.reply,
+    '',
+    '—',
+    'GitHub Healthcheck support',
+    env.APP_URL,
+  ].join('\n');
+
+  const html = shell(
+    `<p>Hi ${escapeHtml(args.login)},</p>
+     <p style="white-space:pre-wrap">${escapeHtml(args.reply)}</p>
+     <p style="color:#6b7895;font-size:13px;margin-top:18px">— GitHub Healthcheck support ·
+     <a href="${escapeHtml(env.APP_URL)}" style="color:#9aa6c0">${escapeHtml(env.APP_URL)}</a></p>`,
+  );
+
+  return send(env, { to: args.to, subject, html, text });
+}
+
+// Sent to the admin (if ADMIN_EMAIL is configured) when a new support message
+// arrives, so they don't have to poll the dashboard.
+export async function sendAdminContactNotice(
+  env: Env,
+  args: { from: string; subject: string; body: string },
+): Promise<{ sent: boolean }> {
+  if (!env.ADMIN_EMAIL) return { sent: false };
+  const subject = `[Healthcheck support] ${args.subject}`;
+  const text = [
+    `New support message from ${args.from}:`,
+    '',
+    `Subject: ${args.subject}`,
+    '',
+    args.body,
+    '',
+    `Manage: ${env.APP_URL}`,
+  ].join('\n');
+
+  const html = shell(
+    `<p><strong>New support message</strong> from ${escapeHtml(args.from)}.</p>
+     <p style="color:#9aa6c0;font-size:13px">Subject: ${escapeHtml(args.subject)}</p>
+     <p style="white-space:pre-wrap">${escapeHtml(args.body)}</p>
+     ${button(`${env.APP_URL}`, 'Open the dashboard')}`,
+  );
+
+  return send(env, { to: env.ADMIN_EMAIL, subject, html, text });
+}
+
 function shell(inner: string): string {
   return `<!doctype html><html><body style="margin:0;background:#0b1020;padding:24px;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif">
     <div style="max-width:560px;margin:0 auto;background:#151d36;border:1px solid #243049;border-radius:12px;overflow:hidden">

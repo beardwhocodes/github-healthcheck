@@ -17,5 +17,8 @@
     "noEmit": true
   },
   "include": ["src/**/*.ts", "tests/**/*.ts"],
-  "exclude": ["node_modules", "web", "dist"]
+  // tests/integration/*.itest.ts use the cloudflare:test runtime module and a
+  // ?raw import; they are transpiled + run by the workers pool
+  // (vitest.workers.config.ts), not type-checked by this node tsc pass.
+  "exclude": ["node_modules", "web", "dist", "tests/integration"]
 }

@@ -29,6 +29,8 @@ jobs:
         run: npm run typecheck
       - name: Unit tests
         run: npm test
+      - name: Integration tests (Workers pool + D1)
+        run: npm run test:integration
       - name: Build SPA
         run: npm run build:web
       - name: Dry-run Worker bundle
