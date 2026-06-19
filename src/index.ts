@@ -3,7 +3,9 @@ import { Hono } from 'hono';
 import { runImpersonationScan } from './alerts/cron.js';
 import { oauth } from './auth/github-oauth.js';
 import type { Env } from './env.js';
+import { admin } from './routes/admin.js';
 import { alerts } from './routes/alerts.js';
+import { contact } from './routes/contact.js';
 import { email } from './routes/email.js';
 import { requireAuth } from './routes/middleware.js';
 import type { Vars } from './routes/middleware.js';
@@ -30,6 +32,9 @@ const api = new Hono<{ Bindings: Env; Variables: Vars }>();
 api.use('*', requireAuth);
 api.route('/', scan);
 api.route('/', alerts);
+api.route('/', contact);
+// Admin surface (requireAdmin is applied inside the admin router).
+api.route('/admin', admin);
 app.route('/api', api);
 
 app.notFound((c) => {

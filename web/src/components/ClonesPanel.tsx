@@ -97,6 +97,25 @@ function CloneMatchCard({ match }: { match: CloneMatch }) {
     }
   }
 
+  // Log the report to our own audit trail (fire-and-forget) so an admin can
+  // observe and triage what users are reporting. Never blocks opening the form.
+  function logReport() {
+    void api
+      .reportRepo({
+        suspectRepo: match.suspectRepo,
+        suspectUrl: match.suspectUrl,
+        sourceRepo: match.sourceRepo,
+        confidence: match.confidence,
+        category,
+      })
+      .catch(() => {});
+  }
+
+  function onReportClick() {
+    void copyEvidence();
+    logReport();
+  }
+
   return (
     <div className="card mt16">
       <div className="match" style={{ paddingTop: 0 }}>
@@ -123,7 +142,7 @@ function CloneMatchCard({ match }: { match: CloneMatch }) {
             href={reportUrl}
             target="_blank"
             rel="noreferrer noopener"
-            onClick={copyEvidence}
+            onClick={onReportClick}
             style={{ padding: '6px 12px' }}
           >
             ⚠ Report to GitHub

@@ -3,22 +3,34 @@ import { useCallback, useEffect, useState } from 'react';
 import { ApiError, api } from './api.js';
 import type { Me, SelfReportResponse } from './api.js';
 import { AccountReportView } from './components/AccountReportView.js';
+import { AdminPanel } from './components/admin/AdminPanel.js';
 import { AlertsPanel } from './components/AlertsPanel.js';
 import { ClonesPanel } from './components/ClonesPanel.js';
+import { ContactPanel } from './components/ContactPanel.js';
 import { Footer } from './components/Footer.js';
 import { Landing } from './components/Landing.js';
 import { ScanAnyPanel } from './components/ScanAnyPanel.js';
+import { SuspendedNotice } from './components/SuspendedNotice.js';
 import { clearCachedReport, readCachedReport, writeCachedReport } from './reportCache.js';
 import { timeAgo } from './ui.js';
 
-type Tab = 'self' | 'clones' | 'scan' | 'alerts';
+type Tab = 'self' | 'clones' | 'scan' | 'alerts' | 'contact' | 'admin';
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: 'self', label: 'My report' },
-  { id: 'clones', label: 'Clone detection' },
-  { id: 'scan', label: 'Scan any repo' },
-  { id: 'alerts', label: 'Alerts' },
-];
+function tabsFor(me: Me): { id: Tab; label: string }[] {
+  const scanTabs: { id: Tab; label: string }[] = me.suspended
+    ? []
+    : [
+        { id: 'self', label: 'My report' },
+        { id: 'clones', label: 'Clone detection' },
+        { id: 'scan', label: 'Scan any repo' },
+        { id: 'alerts', label: 'Alerts' },
+      ];
+  return [
+    ...scanTabs,
+    { id: 'contact', label: 'Support' },
+    ...(me.isAdmin ? [{ id: 'admin' as Tab, label: '⚙ Admin' }] : []),
+  ];
+}
 
 export function App() {
   const [me, setMe] = useState<Me | null | undefined>(undefined); // undefined = loading
@@ -48,6 +60,9 @@ export function App() {
     );
   }
 
+  const tabs = tabsFor(me);
+  const activeTab: Tab = tabs.some((t) => t.id === tab) ? tab : (tabs[0]?.id ?? 'contact');
+
   return (
     <>
       <header className="header">
@@ -56,12 +71,12 @@ export function App() {
       </header>
       <div className="container">
         <div className="tabs" role="tablist" aria-label="Report sections">
-          {TABS.map((t) => (
+          {tabs.map((t) => (
             <button
               key={t.id}
               role="tab"
-              aria-selected={tab === t.id}
-              className={`tab ${tab === t.id ? 'active' : ''}`}
+              aria-selected={activeTab === t.id}
+              className={`tab ${activeTab === t.id ? 'active' : ''}`}
               onClick={() => setTab(t.id)}
             >
               {t.label}
@@ -69,10 +84,18 @@ export function App() {
           ))}
         </div>
 
-        {tab === 'self' && <SelfReport login={me.login} />}
-        {tab === 'clones' && <ClonesPanel />}
-        {tab === 'scan' && <ScanAnyPanel />}
-        {tab === 'alerts' && <AlertsPanel />}
+        {me.suspended && (
+          <div style={{ marginBottom: 16 }}>
+            <SuspendedNotice reason={me.suspendedReason} />
+          </div>
+        )}
+
+        {activeTab === 'self' && <SelfReport login={me.login} />}
+        {activeTab === 'clones' && <ClonesPanel />}
+        {activeTab === 'scan' && <ScanAnyPanel />}
+        {activeTab === 'alerts' && <AlertsPanel />}
+        {activeTab === 'contact' && <ContactPanel />}
+        {activeTab === 'admin' && <AdminPanel />}
       </div>
       <Footer />
     </>

@@ -135,10 +135,15 @@ export async function deactivateByUnsubscribeToken(
   return row.login;
 }
 
-// Only verified, active subscriptions are ever emailed by the cron.
+// Only verified, active, NON-suspended subscriptions are ever scanned/emailed by
+// the cron. The LEFT JOIN excludes anyone the admin has suspended (a missing
+// users row — e.g. legacy data — is treated as not suspended).
 export async function listActiveSubscriptions(env: Env): Promise<Subscription[]> {
   const { results } = await env.DB.prepare(
-    `SELECT * FROM alert_subscriptions WHERE active = 1 AND verified = 1`,
+    `SELECT s.*
+       FROM alert_subscriptions s
+       LEFT JOIN users u ON u.login = s.login
+      WHERE s.active = 1 AND s.verified = 1 AND u.suspended_at IS NULL`,
   ).all<SubscriptionRow>();
   return (results ?? []).map(rowToSubscription);
 }

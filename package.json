@@ -13,6 +13,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p web/tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:integration": "vitest run -c vitest.workers.config.ts",
     "deploy": "echo 'Production deploys run in CI on push to master (.github/workflows/deploy.yml). Do not deploy from a local machine.' && exit 1",
     "db:init": "wrangler d1 execute github-healthcheck-db --local --file=./src/db/schema.sql",
     "db:init:remote": "wrangler d1 execute github-healthcheck-db --remote --file=./src/db/schema.sql"
@@ -21,6 +22,7 @@
     "hono": "^4.6.14"
   },
   "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.6.16",
     "@cloudflare/workers-types": "^4.20241218.0",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",

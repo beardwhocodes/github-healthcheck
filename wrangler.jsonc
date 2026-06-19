@@ -55,5 +55,7 @@
     "APP_URL": "https://github-healthcheck.beardwho.codes",
     "GITHUB_CLIENT_ID": "Ov23liY3KuEfojvgelK9",
     "ALERT_FROM_EMAIL": "noreply@github-healthcheck.beardwho.codes"
+    // Optional: set ADMIN_EMAIL here to be emailed when a new support message
+    // arrives (e.g. "ADMIN_EMAIL": "you@example.com"). Unset = dashboard only.
   }
 }

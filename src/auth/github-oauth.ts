@@ -4,6 +4,7 @@ import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import type { Env } from '../env.js';
 import { randomToken, sign, verify } from './crypto.js';
 import { createSession, destroySession } from './session.js';
+import { upsertUserOnLogin } from '../users/store.js';
 
 const STATE_COOKIE = 'rs_oauth_state';
 
@@ -97,11 +98,28 @@ oauth.get('/callback', async (c) => {
     avatar_url: string;
   };
 
+  const scopes = tokenJson.scope ?? '';
+  const includesPrivate = scopes.split(/[ ,]+/).includes('repo');
+
+  // Durable identity record (also re-promotes the bootstrap admin). Best-effort:
+  // a failure here must not block sign-in.
+  try {
+    await upsertUserOnLogin(c.env, {
+      login: user.login,
+      name: user.name,
+      avatarUrl: user.avatar_url,
+      includesPrivate,
+      now: Date.now(),
+    });
+  } catch (err) {
+    console.log(`[auth] user upsert failed for ${user.login}: ${String(err)}`);
+  }
+
   await createSession(c, {
     login: user.login,
     name: user.name,
     avatarUrl: user.avatar_url,
-    scopes: tokenJson.scope ?? '',
+    scopes,
     token: tokenJson.access_token,
   });
 

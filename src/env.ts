@@ -28,10 +28,30 @@ export interface Env {
   APP_URL: string;
   GITHUB_CLIENT_ID: string;
   ALERT_FROM_EMAIL: string;
+  // Optional: if set, new support-inbox messages are emailed here. Unset is fine
+  // (the admin still sees everything in the dashboard).
+  ADMIN_EMAIL?: string;
 
   // Secrets.
   GITHUB_CLIENT_SECRET: string;
   SESSION_SECRET: string;
+}
+
+// Durable identity record (the `users` table). Distinct from SessionData, which
+// is the ephemeral, per-login decrypted-token view. Snake_case DB columns are
+// mapped to camelCase at the store layer (D1 returns columns verbatim).
+export interface UserRecord {
+  login: string;
+  name: string | null;
+  avatarUrl: string | null;
+  role: 'user' | 'admin';
+  suspendedAt: number | null;
+  suspendedReason: string | null;
+  suspendedBy: string | null;
+  includesPrivate: number; // 0 | 1
+  scanCount: number;
+  firstSeenAt: number;
+  lastSeenAt: number;
 }
 
 // Shape stored in the session row (token is encrypted at rest).
