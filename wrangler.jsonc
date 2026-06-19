@@ -27,7 +27,7 @@
     {
       "binding": "DB",
       "database_name": "github-healthcheck-db",
-      "database_id": "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+      "database_id": "80e3f445-c473-46a7-ada5-5ec4706ccfa0"
     }
   ],
 
