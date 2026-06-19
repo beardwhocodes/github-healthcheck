@@ -443,6 +443,15 @@ a:hover {
   font-size: 13px;
   color: var(--text-dim);
 }
+.match-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.match-actions .btn {
+  text-decoration: none;
+}
 
 /* Forms */
 input[type="text"],
