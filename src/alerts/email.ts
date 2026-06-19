@@ -1,90 +1,142 @@
 import type { Env } from '../env.js';
 import type { CloneMatch } from '../engine/types.js';
 
-// Send an impersonation alert. Uses Resend when RESEND_API_KEY is configured;
-// otherwise logs the alert (so local/dev runs work without an email provider).
-export async function sendImpersonationAlert(
-  env: Env,
-  args: { to: string; login: string; matches: CloneMatch[] },
-): Promise<{ sent: boolean }> {
-  const subject = `GitHub Healthcheck: ${args.matches.length} new possible clone${
-    args.matches.length === 1 ? '' : 's'
-  } of your repositories`;
-  const html = renderAlertHtml(args.login, args.matches, env.APP_URL);
-  const text = renderAlertText(args.login, args.matches, env.APP_URL);
+const FROM_NAME = 'GitHub Healthcheck';
 
-  if (!env.RESEND_API_KEY) {
-    // No email provider configured (e.g. local dev). Log only a count — not the
-    // recipient address or the repo list — so logs don't accumulate PII.
-    console.log(`[alert] would email ${args.matches.length} new clone(s) (RESEND_API_KEY unset)`);
+function verifyUrl(appUrl: string, token: string): string {
+  return `${appUrl}/email/verify?token=${encodeURIComponent(token)}`;
+}
+
+function unsubscribeUrl(appUrl: string, token: string): string {
+  return `${appUrl}/email/unsubscribe?token=${encodeURIComponent(token)}`;
+}
+
+// Headers that let mail clients show a native one-click unsubscribe.
+function unsubscribeHeaders(url: string): Record<string, string> {
+  return {
+    'List-Unsubscribe': `<${url}>`,
+    'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+  };
+}
+
+async function send(
+  env: Env,
+  args: { to: string; subject: string; html: string; text: string; headers?: Record<string, string> },
+): Promise<{ sent: boolean }> {
+  try {
+    await env.EMAIL.send({
+      to: args.to,
+      from: { email: env.ALERT_FROM_EMAIL, name: FROM_NAME },
+      subject: args.subject,
+      html: args.html,
+      text: args.text,
+      headers: args.headers,
+    });
+    return { sent: true };
+  } catch (err) {
+    console.log(`[email] send failed to ${args.to.replace(/(.).*(@.*)/, '$1***$2')}: ${String(err)}`);
     return { sent: false };
   }
-
-  const resp = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${env.RESEND_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      from: `GitHub Healthcheck <${env.ALERT_FROM_EMAIL}>`,
-      to: [args.to],
-      subject,
-      html,
-      text,
-    }),
-  });
-
-  return { sent: resp.ok };
 }
 
-function renderAlertText(login: string, matches: CloneMatch[], appUrl: string): string {
-  const lines = [
-    `Hi ${login},`,
+// Double opt-in: sent on subscribe. Confirms ownership before any alert fires.
+export async function sendVerificationEmail(
+  env: Env,
+  args: { to: string; login: string; verifyToken: string; unsubscribeToken: string },
+): Promise<{ sent: boolean }> {
+  const verify = verifyUrl(env.APP_URL, args.verifyToken);
+  const unsub = unsubscribeUrl(env.APP_URL, args.unsubscribeToken);
+  const subject = 'Confirm your GitHub Healthcheck alerts';
+
+  const text = [
+    `Hi ${args.login},`,
     '',
-    `GitHub Healthcheck found ${matches.length} new repositor${matches.length === 1 ? 'y' : 'ies'} that may be malicious clones of your work:`,
+    'Confirm this address to turn on alerts that notify you when a new malicious',
+    'clone of one of your GitHub repositories appears.',
     '',
-  ];
-  for (const m of matches) {
-    lines.push(
+    `Confirm: ${verify}`,
+    '',
+    "If you didn't request this, ignore this email or unsubscribe:",
+    unsub,
+  ].join('\n');
+
+  const html = shell(
+    `<p>Hi ${escapeHtml(args.login)},</p>
+     <p>Confirm this address to turn on alerts that notify you when a new malicious
+     clone of one of your GitHub repositories appears.</p>
+     ${button(verify, 'Confirm my email')}
+     <p style="color:#6b7895;font-size:13px;margin-top:18px">If you didn't request this, you can ignore this email or
+     <a href="${escapeHtml(unsub)}" style="color:#9aa6c0">unsubscribe</a>.</p>`,
+  );
+
+  return send(env, { to: args.to, subject, html, text, headers: unsubscribeHeaders(unsub) });
+}
+
+// Sent by the daily cron when NEW suspected clones appear.
+export async function sendImpersonationAlert(
+  env: Env,
+  args: { to: string; login: string; matches: CloneMatch[]; unsubscribeToken: string },
+): Promise<{ sent: boolean }> {
+  const unsub = unsubscribeUrl(env.APP_URL, args.unsubscribeToken);
+  const n = args.matches.length;
+  const subject = `GitHub Healthcheck: ${n} new possible clone${n === 1 ? '' : 's'} of your repositories`;
+
+  const text = [
+    `Hi ${args.login},`,
+    '',
+    `We found ${n} new repositor${n === 1 ? 'y' : 'ies'} that may be malicious clones of your work:`,
+    '',
+    ...args.matches.flatMap((m) => [
       `• ${m.suspectRepo} (copy of ${m.sourceRepo}) — confidence ${m.confidence}/100, risk ${m.report.score}/100`,
-    );
-    lines.push(`  ${m.suspectUrl}`);
-    if (m.matchReasons.length) lines.push(`  Why: ${m.matchReasons.join('; ')}`);
-  }
-  lines.push('', `Review them: ${appUrl}`, '', 'You can report confirmed impersonations to GitHub at github.com/contact/report-abuse.');
-  return lines.join('\n');
-}
+      `  ${m.suspectUrl}`,
+      ...(m.matchReasons.length ? [`  Why: ${m.matchReasons.join('; ')}`] : []),
+    ]),
+    '',
+    `Review them: ${env.APP_URL}`,
+    'Report confirmed impersonations at github.com/contact/report-abuse.',
+    '',
+    `Unsubscribe from these alerts: ${unsub}`,
+  ].join('\n');
 
-function renderAlertHtml(login: string, matches: CloneMatch[], appUrl: string): string {
-  const rows = matches
+  const rows = args.matches
     .map(
       (m) => `
       <tr>
-        <td style="padding:8px 12px;border-bottom:1px solid #eee">
-          <a href="${escapeHtml(m.suspectUrl)}" style="color:#2563eb;font-weight:600">${escapeHtml(m.suspectRepo)}</a><br/>
-          <span style="color:#666;font-size:13px">copy of ${escapeHtml(m.sourceRepo)}</span>
+        <td style="padding:8px 12px;border-bottom:1px solid #243049">
+          <a href="${escapeHtml(m.suspectUrl)}" style="color:#4f8cff;font-weight:600">${escapeHtml(m.suspectRepo)}</a><br/>
+          <span style="color:#9aa6c0;font-size:13px">copy of ${escapeHtml(m.sourceRepo)}</span>
         </td>
-        <td style="padding:8px 12px;border-bottom:1px solid #eee;text-align:right">
-          <span style="color:#b91c1c;font-weight:600">risk ${m.report.score}</span><br/>
-          <span style="color:#666;font-size:13px">confidence ${m.confidence}</span>
+        <td style="padding:8px 12px;border-bottom:1px solid #243049;text-align:right">
+          <span style="color:#f97316;font-weight:600">risk ${m.report.score}</span><br/>
+          <span style="color:#9aa6c0;font-size:13px">confidence ${m.confidence}</span>
         </td>
       </tr>`,
     )
     .join('');
 
-  return `<!doctype html><html><body style="font-family:system-ui,sans-serif;color:#111;background:#f8fafc;padding:24px">
-    <div style="max-width:560px;margin:0 auto;background:#fff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden">
-      <div style="background:#0f172a;color:#fff;padding:16px 20px;font-weight:700">GitHub Healthcheck alert</div>
-      <div style="padding:20px">
-        <p>Hi ${escapeHtml(login)},</p>
-        <p>We found <strong>${matches.length}</strong> new repositor${matches.length === 1 ? 'y' : 'ies'} that may be malicious clones of your work.</p>
-        <table style="width:100%;border-collapse:collapse;margin:12px 0">${rows}</table>
-        <a href="${escapeHtml(appUrl)}" style="display:inline-block;background:#2563eb;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none;font-weight:600">Review in GitHub Healthcheck</a>
-        <p style="color:#666;font-size:13px;margin-top:16px">Report confirmed impersonations at github.com/contact/report-abuse.</p>
-      </div>
+  const html = shell(
+    `<p>Hi ${escapeHtml(args.login)},</p>
+     <p>We found <strong>${n}</strong> new repositor${n === 1 ? 'y' : 'ies'} that may be malicious clones of your work.</p>
+     <table style="width:100%;border-collapse:collapse;margin:12px 0">${rows}</table>
+     ${button(env.APP_URL, 'Review in GitHub Healthcheck')}
+     <p style="color:#6b7895;font-size:13px;margin-top:16px">Report confirmed impersonations at github.com/contact/report-abuse ·
+     <a href="${escapeHtml(unsub)}" style="color:#9aa6c0">unsubscribe</a></p>`,
+  );
+
+  return send(env, { to: args.to, subject, html, text, headers: unsubscribeHeaders(unsub) });
+}
+
+function shell(inner: string): string {
+  return `<!doctype html><html><body style="margin:0;background:#0b1020;padding:24px;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif">
+    <div style="max-width:560px;margin:0 auto;background:#151d36;border:1px solid #243049;border-radius:12px;overflow:hidden">
+      <div style="background:#0f172a;color:#fff;padding:16px 20px;font-weight:700">🛡️ GitHub Healthcheck</div>
+      <div style="padding:20px;color:#e6ebf5;font-size:15px;line-height:1.5">${inner}</div>
     </div>
   </body></html>`;
+}
+
+function button(href: string, label: string): string {
+  return `<a href="${escapeHtml(href)}" style="display:inline-block;background:#4f8cff;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none;font-weight:600">${escapeHtml(label)}</a>`;
 }
 
 function escapeHtml(s: string): string {

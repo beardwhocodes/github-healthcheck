@@ -16,10 +16,18 @@
     "directory": "./web/dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    // Always route API/auth to the Worker first; everything else is served as a
-    // static asset (or the SPA shell for client-side routes).
-    "run_worker_first": ["/api/*", "/auth/*"]
+    // Always route API/auth/email to the Worker first; everything else is served
+    // as a static asset (or the SPA shell for client-side routes).
+    "run_worker_first": ["/api/*", "/auth/*", "/email/*"]
   },
+
+  // Cloudflare Email Sending — transactional verification + alert emails.
+  // The from domain (github-healthcheck.beardwho.codes) must be onboarded:
+  //   npx wrangler email sending enable github-healthcheck.beardwho.codes
+  // For local `wrangler dev` that actually sends, add "remote": true here.
+  "send_email": [
+    { "name": "EMAIL", "allowed_sender_addresses": ["noreply@github-healthcheck.beardwho.codes"] }
+  ],
 
   // D1: sessions, repo baselines, detected clones, alert subscriptions.
   // Create with: wrangler d1 create github-healthcheck-db  (paste the id below)
@@ -43,10 +51,9 @@
   "vars": {
     // Public, non-secret config. PRODUCTION values live here; local dev overrides
     // APP_URL / GITHUB_CLIENT_ID via .dev.vars. Secrets (GITHUB_CLIENT_SECRET,
-    // SESSION_SECRET, RESEND_API_KEY) go in .dev.vars locally and
-    // `wrangler secret put` in prod.
+    // SESSION_SECRET) go in .dev.vars locally and `wrangler secret put` in prod.
     "APP_URL": "https://github-healthcheck.beardwho.codes",
     "GITHUB_CLIENT_ID": "Ov23liY3KuEfojvgelK9",
-    "ALERT_FROM_EMAIL": "alerts@beardwho.codes"
+    "ALERT_FROM_EMAIL": "noreply@github-healthcheck.beardwho.codes"
   }
 }

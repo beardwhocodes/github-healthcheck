@@ -17,14 +17,32 @@ CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions (expires_at);
 
 -- A user's standing subscription to future-impersonation alerts. Stores an
 -- encrypted long-lived token so the daily cron can re-search on their behalf.
+-- Double opt-in: a subscription is only emailed once `verified = 1`. The
+-- verify/unsubscribe tokens are unguessable capability tokens used by the public
+-- (no-login) /email/* routes.
+--
+-- NOTE on migrations: this file is re-applied verbatim by CI on every deploy, so
+-- it contains only idempotent CREATE ... IF NOT EXISTS. A pre-existing
+-- alert_subscriptions table (created before the verification columns were added)
+-- must be upgraded ONCE, out of band, with:
+--   ALTER TABLE alert_subscriptions ADD COLUMN verified INTEGER NOT NULL DEFAULT 0;
+--   ALTER TABLE alert_subscriptions ADD COLUMN verify_token TEXT;
+--   ALTER TABLE alert_subscriptions ADD COLUMN unsubscribe_token TEXT;
+--   ALTER TABLE alert_subscriptions ADD COLUMN verified_at INTEGER;
 CREATE TABLE IF NOT EXISTS alert_subscriptions (
-  login       TEXT PRIMARY KEY,
-  email       TEXT NOT NULL,
-  token_enc   TEXT NOT NULL,
-  active      INTEGER NOT NULL DEFAULT 1,
-  created_at  INTEGER NOT NULL,
-  last_run_at INTEGER
+  login             TEXT PRIMARY KEY,
+  email             TEXT NOT NULL,
+  token_enc         TEXT NOT NULL,
+  active            INTEGER NOT NULL DEFAULT 1,
+  verified          INTEGER NOT NULL DEFAULT 0,
+  verify_token      TEXT,
+  unsubscribe_token TEXT,
+  verified_at       INTEGER,
+  created_at        INTEGER NOT NULL,
+  last_run_at       INTEGER
 );
+CREATE INDEX IF NOT EXISTS idx_alert_verify_token ON alert_subscriptions (verify_token);
+CREATE INDEX IF NOT EXISTS idx_alert_unsub_token ON alert_subscriptions (unsubscribe_token);
 
 -- The repos we watch for each subscriber (their own repositories).
 CREATE TABLE IF NOT EXISTS watched_repos (

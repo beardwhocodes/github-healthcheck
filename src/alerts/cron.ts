@@ -54,6 +54,7 @@ export async function runImpersonationScan(env: Env, now: number): Promise<void>
           to: sub.email,
           login: sub.login,
           matches: fresh,
+          unsubscribeToken: sub.unsubscribeToken ?? '',
         });
         await recordClones(
           env,
