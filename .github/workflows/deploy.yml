@@ -63,9 +63,10 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: d1 execute github-healthcheck-db --remote --file=./src/db/schema.sql
 
-      # Deploy the Worker and push its runtime secrets in one step. Additional
-      # secrets (GITHUB_CLIENT_SECRET, RESEND_API_KEY) get appended to the list
-      # below once the production GitHub OAuth App / Resend key exist.
+      # Deploy the Worker and push its runtime secrets in one step. The Worker
+      # secret GITHUB_CLIENT_SECRET is fed from the Actions secret
+      # GH_OAUTH_CLIENT_SECRET (Actions forbids secret names starting GITHUB_).
+      # Add RESEND_API_KEY here too once a Resend key exists.
       - name: Deploy Worker
         uses: cloudflare/wrangler-action@v3
         with:
@@ -74,5 +75,7 @@ jobs:
           command: deploy
           secrets: |
             SESSION_SECRET
+            GITHUB_CLIENT_SECRET
         env:
           SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+          GITHUB_CLIENT_SECRET: ${{ secrets.GH_OAUTH_CLIENT_SECRET }}
