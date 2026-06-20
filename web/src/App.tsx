@@ -105,7 +105,7 @@ export function App() {
 function Brand() {
   return (
     <div className="brand">
-      <span className="logo">🛡️</span>
+      <img className="logo" src="/logo.png" alt="" width={32} height={32} />
       <div>
         GitHub Healthcheck
         <small>GitHub malware &amp; clone scanner</small>

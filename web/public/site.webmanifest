@@ -1,0 +1,12 @@
+{
+  "name": "GitHub Healthcheck",
+  "short_name": "Healthcheck",
+  "description": "Sign in with GitHub for a security report on your account and repositories — detects the malware-distribution clone campaign and impersonations of your repos.",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ],
+  "theme_color": "#0b1020",
+  "background_color": "#0b1020",
+  "display": "standalone"
+}

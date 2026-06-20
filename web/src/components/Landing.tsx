@@ -31,6 +31,7 @@ export function Landing() {
   return (
     <div className="container">
       <div className="hero">
+        <img className="hero-logo" src="/logo.png" alt="" width={80} height={80} />
         <h1>
           Is your GitHub being
           <br />
