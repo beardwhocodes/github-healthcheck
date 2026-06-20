@@ -7,7 +7,7 @@ import { env, SELF } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { Env } from '../../src/env.js';
-import { encrypt, randomToken } from '../../src/auth/crypto.js';
+import { encrypt, randomToken, sha256Hex } from '../../src/auth/crypto.js';
 import { getUser, upsertUserOnLogin } from '../../src/users/store.js';
 import { listActiveSubscriptions } from '../../src/alerts/store.js';
 
@@ -64,16 +64,18 @@ async function seedUser(args: {
     .run();
 }
 
-// Create a session row and return its cookie value.
+// Create a session row and return its cookie value. The row stores the HASH of
+// the id (matching createSession); the raw id is what goes in the cookie.
 async function seedSession(login: string): Promise<string> {
   const id = randomToken(32);
+  const idHash = await sha256Hex(id);
   const tokenEnc = await encrypt('gho_testtoken', SESSION_SECRET);
   const expiresAt = Date.now() + 60 * 60 * 1000;
   await DB.prepare(
     `INSERT INTO sessions (id, login, name, avatar_url, scopes, token_enc, expires_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
   )
-    .bind(id, login, login, 'https://avatar.example/x.png', 'read:user', tokenEnc, expiresAt)
+    .bind(idHash, login, login, 'https://avatar.example/x.png', 'read:user', tokenEnc, expiresAt)
     .run();
   return id;
 }

@@ -2,6 +2,8 @@ import { Hono } from 'hono';
 
 import { runImpersonationScan } from './alerts/cron.js';
 import { oauth } from './auth/github-oauth.js';
+import { sweepExpiredSessions } from './auth/session.js';
+import { pruneRateEvents } from './ratelimit/store.js';
 import type { Env } from './env.js';
 import { admin } from './routes/admin.js';
 import { alerts } from './routes/alerts.js';
@@ -13,12 +15,32 @@ import { scan } from './routes/scan.js';
 
 const app = new Hono<{ Bindings: Env; Variables: Vars }>();
 
-// Baseline security headers for every response.
+// Content-Security-Policy for worker-served responses. `script-src 'self'` (no
+// 'unsafe-inline') neutralizes any javascript:/inline-script vector; the /email
+// confirmation pages use inline STYLE attributes only, hence style 'unsafe-inline'.
+// Static SPA assets are served by the Assets binding (not this Worker), so they
+// carry the equivalent policy from web/public/_headers.
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' https://avatars.githubusercontent.com https://*.githubusercontent.com data:",
+  "connect-src 'self'",
+  "font-src 'self'",
+  "base-uri 'none'",
+  "object-src 'none'",
+  "frame-ancestors 'none'",
+  "form-action 'self'",
+].join('; ');
+
+// Baseline security headers for every worker response.
 app.use('*', async (c, next) => {
   await next();
   c.header('X-Content-Type-Options', 'nosniff');
   c.header('Referrer-Policy', 'strict-origin-when-cross-origin');
   c.header('X-Frame-Options', 'DENY');
+  c.header('Strict-Transport-Security', 'max-age=63072000; includeSubDomains');
+  c.header('Content-Security-Policy', CSP);
 });
 
 // OAuth (login / callback / logout).
@@ -48,6 +70,10 @@ app.notFound((c) => {
 export default {
   fetch: app.fetch,
   async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(runImpersonationScan(env, Date.now()));
+    const now = Date.now();
+    ctx.waitUntil(runImpersonationScan(env, now));
+    // Daily maintenance: purge expired sessions and old rate-limit events.
+    ctx.waitUntil(sweepExpiredSessions(env, now));
+    ctx.waitUntil(pruneRateEvents(env, now - 24 * 60 * 60 * 1000));
   },
 };

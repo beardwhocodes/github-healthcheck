@@ -11,6 +11,7 @@ import type { ScanKind } from '../admin/constants.js';
 import { recordScan } from '../scans/store.js';
 import { requireNotSuspended } from './middleware.js';
 import type { Vars } from './middleware.js';
+import { rateLimit, SCAN_BURST, SCAN_DAILY } from './rate-limit.js';
 
 export const scan = new Hono<{ Bindings: Env; Variables: Vars }>();
 
@@ -49,7 +50,7 @@ scan.get('/me', (c) => {
 });
 
 // Full self-audit: the signed-in user's account + each of their repositories.
-scan.get('/report', requireNotSuspended, async (c) => {
+scan.get('/report', requireNotSuspended, rateLimit(SCAN_BURST, SCAN_DAILY), async (c) => {
   const client = c.get('client');
   const session = c.get('session');
   const limit = clampLimit(c.req.query('limit'));
@@ -80,7 +81,7 @@ scan.get('/report', requireNotSuspended, async (c) => {
 
 // Scan any repo (owner/name) or any account (owner). Accepts a github.com URL,
 // "owner/repo", or "owner". Only api.github.com is ever contacted.
-scan.get('/scan', requireNotSuspended, async (c) => {
+scan.get('/scan', requireNotSuspended, rateLimit(SCAN_BURST, SCAN_DAILY), async (c) => {
   const client = c.get('client');
   const now = Date.now();
   const target = parseTarget(c.req.query('target') ?? '');
@@ -111,7 +112,7 @@ scan.get('/scan', requireNotSuspended, async (c) => {
 });
 
 // Detect clones/impersonations of the signed-in user's own repositories.
-scan.get('/clones', requireNotSuspended, async (c) => {
+scan.get('/clones', requireNotSuspended, rateLimit(SCAN_BURST, SCAN_DAILY), async (c) => {
   const client = c.get('client');
   const session = c.get('session');
   const now = Date.now();

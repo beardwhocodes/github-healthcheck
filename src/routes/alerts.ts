@@ -13,6 +13,7 @@ import {
 import { sendVerificationEmail } from '../alerts/email.js';
 import { requireNotSuspended } from './middleware.js';
 import type { Vars } from './middleware.js';
+import { ALERT_EMAIL, rateLimit } from './rate-limit.js';
 
 export const alerts = new Hono<{ Bindings: Env; Variables: Vars }>();
 
@@ -38,7 +39,7 @@ alerts.get('/alerts', async (c) => {
 // Suspension-gated: this is the heaviest path (GitHub *search* + outbound email)
 // and enrolls the daily cron, so a suspended account must not reach it. GET/DELETE
 // stay open so a suspended user can still view or cancel an existing subscription.
-alerts.post('/alerts', requireNotSuspended, async (c) => {
+alerts.post('/alerts', requireNotSuspended, rateLimit(ALERT_EMAIL), async (c) => {
   const session = c.get('session');
   const client = c.get('client');
   const now = Date.now();

@@ -9,7 +9,7 @@ import {
   buildReportUrl,
   pickAbuseCategory,
 } from '../report.js';
-import { fmtDate } from '../ui.js';
+import { fmtDate, safeExternalUrl } from '../ui.js';
 import { BandBadge, FindingItem } from './Primitives.js';
 
 export function ClonesPanel() {
@@ -120,9 +120,13 @@ function CloneMatchCard({ match }: { match: CloneMatch }) {
     <div className="card mt16">
       <div className="match" style={{ paddingTop: 0 }}>
         <div className="row1">
-          <a href={match.suspectUrl} target="_blank" rel="noreferrer noopener" style={{ fontWeight: 700 }}>
-            {match.suspectRepo}
-          </a>
+          {safeExternalUrl(match.suspectUrl) ? (
+            <a href={safeExternalUrl(match.suspectUrl)} target="_blank" rel="noreferrer noopener" style={{ fontWeight: 700 }}>
+              {match.suspectRepo}
+            </a>
+          ) : (
+            <span style={{ fontWeight: 700 }}>{match.suspectRepo}</span>
+          )}
           <BandBadge band={match.report.band} />
           <span className="confidence">
             confidence <b>{match.confidence}</b>/100

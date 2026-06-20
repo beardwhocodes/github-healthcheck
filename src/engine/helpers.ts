@@ -7,7 +7,11 @@ export function extractUrls(text: string): string[] {
   const urls = new Set<string>();
 
   const patterns = [
-    /!?\[[^\]]*\]\(\s*<?([^()\s>]+)>?[^)]*\)/g, // inline [t](url) / ![a](url)
+    // inline [t](url) / ![a](url). Capture the URL token right after "](" and
+    // stop — we do NOT require the closing ")". The previous form had a trailing
+    // [^)]*\) whose run overlapped the URL capture, giving O(n²) backtracking on
+    // an unclosed "(" in an attacker-supplied README (measured: ~2.3s @ 40KB).
+    /!?\[[^\]]*\]\(\s*<?([^()\s>]+)/g,
     /^\s*\[[^\]]+\]:\s*<?([^\s>]+)>?/gim, // reference def [id]: url
     /<((?:https?:\/\/)[^\s<>]+)>/gi, // angle autolink <url>
     /(?:href|src)\s*=\s*["']([^"']+)["']/gi, // html attributes
@@ -44,21 +48,23 @@ export function urlHasExtension(urlOrPath: string, extensions: readonly string[]
 }
 
 // Find bare binary/archive *filename* tokens in prose, e.g. "Setup.exe",
-// "app-1.0.zip". Requires a real name char before the dot and uses the curated
-// PROSE_BINARY_EXTENSIONS set, so hostnames and English prose don't match.
-const PROSE_TOKEN_RE = new RegExp(
-  `\\b[\\w-][\\w.-]*\\.(${PROSE_BINARY_EXTENSIONS.join('|')})\\b`,
-  'gi',
-);
+// "app-1.0.zip". We match a maximal filename run with a SINGLE linear char class
+// (no adjacent variable quantifiers → no backtracking), then check the extension
+// suffix in JS. The previous regex asserted the extension inside the pattern,
+// whose trailing `\.(ext)` overlapped the dotted body and backtracked in O(n²)
+// on a long "a.a.a.…" README (measured ~2.7s at 50KB); this is linear.
+const PROSE_CANDIDATE_RE = /\b[\w-][\w.-]*/g;
+const PROSE_EXT_SET = new Set(PROSE_BINARY_EXTENSIONS.map((e) => e.toLowerCase()));
 
 export function findBinaryFilenameTokens(text: string): string[] {
   const out = new Set<string>();
   let match: RegExpExecArray | null;
-  PROSE_TOKEN_RE.lastIndex = 0;
-  while ((match = PROSE_TOKEN_RE.exec(text)) !== null) {
-    // Exclude tokens that are actually hostnames (preceded by "//" or "@", or
-    // where the token contains no separator and looks like "name.tld").
-    out.add(match[0].toLowerCase());
+  PROSE_CANDIDATE_RE.lastIndex = 0;
+  while ((match = PROSE_CANDIDATE_RE.exec(text)) !== null) {
+    const token = match[0].replace(/[.-]+$/, '').toLowerCase(); // drop trailing . / -
+    const dot = token.lastIndexOf('.');
+    if (dot <= 0) continue; // need a real name char before the dot
+    if (PROSE_EXT_SET.has(token.slice(dot + 1))) out.add(token);
   }
   return [...out];
 }

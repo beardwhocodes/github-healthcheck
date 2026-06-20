@@ -116,7 +116,11 @@ export type ContactValidation = { ok: true; value: CleanContact } | { ok: false;
 // Validate + normalize a contact-form submission. Trims, enforces bounds, and
 // rejects empties. Returns the cleaned values so callers store exactly this.
 export function validateContact(input: ContactInput): ContactValidation {
-  const subject = typeof input.subject === 'string' ? input.subject.trim() : '';
+  // Collapse CR/LF in the subject: it is later used as an email header
+  // ("Re: <subject>") in admin replies, so newlines could attempt header
+  // injection. The body may keep its line breaks (it's only an HTML/text body).
+  const subject =
+    typeof input.subject === 'string' ? input.subject.replace(/[\r\n]+/g, ' ').trim() : '';
   const body = typeof input.body === 'string' ? input.body.trim() : '';
 
   if (!subject) return { ok: false, error: 'A subject is required.' };

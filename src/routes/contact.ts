@@ -7,15 +7,30 @@ import type { AbuseCategory } from '../admin/constants.js';
 import { createMessage, listMessagesForUser } from '../messages/store.js';
 import { recordReport } from '../reports/store.js';
 import { sendAdminContactNotice } from '../alerts/email.js';
+import { requireNotSuspended } from './middleware.js';
 import type { Vars } from './middleware.js';
+import { rateLimit, WRITE_BURST } from './rate-limit.js';
 
 export const contact = new Hono<{ Bindings: Env; Variables: Vars }>();
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+// Accept only an https URL (≤400 chars). Anything else — notably javascript:/
+// data: URIs, which would execute when an admin clicks the link in the Reports
+// view — is dropped to null. Defends the admin UI against stored-href injection.
+function safeHttpUrl(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim().slice(0, 400);
+  try {
+    return new URL(trimmed).protocol === 'https:' ? trimmed : null;
+  } catch {
+    return null;
+  }
+}
+
 // Submit a support question/issue. Any signed-in user. The email (optional) lets
 // an admin reply by mail; it is validated but not required.
-contact.post('/contact', async (c) => {
+contact.post('/contact', rateLimit(WRITE_BURST), async (c) => {
   const session = c.get('session');
   const now = Date.now();
   const raw = await c.req
@@ -60,7 +75,7 @@ contact.get('/contact', async (c) => {
 
 // Log that the user reported a suspect repo to GitHub, building an audit trail an
 // admin can triage. Called by the clone panel when "Report to GitHub" is clicked.
-contact.post('/reports', async (c) => {
+contact.post('/reports', requireNotSuspended, rateLimit(WRITE_BURST), async (c) => {
   const session = c.get('session');
   const now = Date.now();
   type ReportBody = {
@@ -83,7 +98,7 @@ contact.post('/reports', async (c) => {
   await recordReport(c.env, {
     reporterLogin: session.login,
     suspectRepo: suspectRepo.slice(0, 200),
-    suspectUrl: typeof raw.suspectUrl === 'string' ? raw.suspectUrl.slice(0, 400) : null,
+    suspectUrl: safeHttpUrl(raw.suspectUrl),
     sourceRepo: typeof raw.sourceRepo === 'string' ? raw.sourceRepo.slice(0, 200) : null,
     confidence: typeof raw.confidence === 'number' && Number.isFinite(raw.confidence)
       ? Math.max(0, Math.min(100, Math.round(raw.confidence)))

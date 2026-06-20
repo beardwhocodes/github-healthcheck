@@ -10,6 +10,7 @@ import { ContactPanel } from './components/ContactPanel.js';
 import { Footer } from './components/Footer.js';
 import { Landing } from './components/Landing.js';
 import { ScanAnyPanel } from './components/ScanAnyPanel.js';
+import { SupportButton } from './components/SupportButton.js';
 import { SuspendedNotice } from './components/SuspendedNotice.js';
 import { clearCachedReport, readCachedReport, writeCachedReport } from './reportCache.js';
 import { timeAgo } from './ui.js';
@@ -27,7 +28,7 @@ function tabsFor(me: Me): { id: Tab; label: string }[] {
       ];
   return [
     ...scanTabs,
-    { id: 'contact', label: 'Support' },
+    { id: 'contact', label: 'Contact' },
     ...(me.isAdmin ? [{ id: 'admin' as Tab, label: '⚙ Admin' }] : []),
   ];
 }
@@ -67,7 +68,10 @@ export function App() {
     <>
       <header className="header">
         <Brand />
-        <UserChip me={me} onSignOut={() => setMe(null)} />
+        <div className="header-right">
+          <SupportButton />
+          <UserChip me={me} onSignOut={() => setMe(null)} />
+        </div>
       </header>
       <div className="container">
         <div className="tabs" role="tablist" aria-label="Report sections">

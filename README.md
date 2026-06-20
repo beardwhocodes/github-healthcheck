@@ -100,8 +100,9 @@ Open <http://localhost:5173>.
   ([create one](https://github.com/settings/developers)) with:
   - Homepage URL: `http://localhost:8787`
   - Authorization callback URL: `http://localhost:8787/auth/callback`
-- `SESSION_SECRET` — `openssl rand -hex 32`
-- `RESEND_API_KEY` — optional; without it, alert emails are logged instead of sent.
+- `SESSION_SECRET` — `openssl rand -hex 32` (also encrypts GitHub tokens at rest)
+
+Email is sent via the Cloudflare Email Sending `EMAIL` binding — no API key needed.
 
 > In dev the SPA is served by Vite on :5173 and proxies `/api` + `/auth` to wrangler on :8787, so the
 > OAuth callback URL must point at `:8787`.
@@ -146,7 +147,6 @@ Cloudflare account and the `CLOUDFLARE_API_TOKEN` has DNS-edit permission for it
    ```bash
    npx wrangler secret put GITHUB_CLIENT_SECRET
    npx wrangler secret put SESSION_SECRET
-   npx wrangler secret put RESEND_API_KEY      # optional
    ```
 4. **Add repo secrets** to the private GitHub repo (Settings → Secrets and variables → Actions):
    `CLOUDFLARE_API_TOKEN` (Workers + D1 edit), `CLOUDFLARE_ACCOUNT_ID`.

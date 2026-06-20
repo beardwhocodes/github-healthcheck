@@ -70,7 +70,6 @@ jobs:
       # Deploy the Worker and push its runtime secrets in one step. The Worker
       # secret GITHUB_CLIENT_SECRET is fed from the Actions secret
       # GH_OAUTH_CLIENT_SECRET (Actions forbids secret names starting GITHUB_).
-      # Add RESEND_API_KEY here too once a Resend key exists.
       - name: Deploy Worker
         uses: cloudflare/wrangler-action@v3
         with:

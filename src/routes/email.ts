@@ -47,6 +47,10 @@ email.get('/unsubscribe', handleUnsubscribe);
 // RFC 8058 one-click unsubscribe (mail clients POST to the List-Unsubscribe URL).
 email.post('/unsubscribe', handleUnsubscribe);
 
+// `title` and `appUrl` are escaped here, but `body` is interpolated as RAW HTML
+// so callers can include intentional markup (e.g. <strong>). CONTRACT: any
+// dynamic/user-derived value placed in `body` MUST be escaped by the caller
+// (see the escapeHtml(sub.email) call above). Do not pass unescaped input here.
 function page(title: string, body: string, appUrl: string): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>

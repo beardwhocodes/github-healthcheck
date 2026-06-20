@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 
 import { ApiError, api } from '../../api.js';
 import type { AbuseCategory, AdminReport, ReportStatus } from '../../api.js';
-import { timeAgo } from '../../ui.js';
+import { safeExternalUrl, timeAgo } from '../../ui.js';
 
 const STATUS_FILTERS: { value: string; label: string }[] = [
   { value: 'all', label: 'All statuses' },
@@ -130,9 +130,9 @@ export function AdminReports() {
             {reports.map((report) => (
               <tr key={report.id}>
                 <td>
-                  {report.suspectUrl ? (
+                  {safeExternalUrl(report.suspectUrl) ? (
                     <a
-                      href={report.suspectUrl}
+                      href={safeExternalUrl(report.suspectUrl)}
                       target="_blank"
                       rel="noreferrer noopener"
                     >
