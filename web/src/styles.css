@@ -790,3 +790,21 @@ input::placeholder {
 .suspended-card {
   border-color: #5b2330;
 }
+
+/* Header right cluster: support button + user chip. */
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* "Buy me a coffee" support button — a warm, understated tip jar. */
+.btn.coffee {
+  background: transparent;
+  border: 1px solid #5b4423;
+  color: #f5d9a8;
+}
+.btn.coffee:hover {
+  background: #2a2113;
+  color: #ffe9c2;
+}

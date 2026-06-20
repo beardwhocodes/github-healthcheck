@@ -42,3 +42,16 @@ export function fmtDate(iso: string | null): string {
   if (Number.isNaN(d.getTime())) return '—';
   return d.toISOString().slice(0, 10);
 }
+
+// Return the URL only if it is https — otherwise undefined, so a stored
+// javascript:/data: URI can never become a clickable href. Defense-in-depth
+// alongside the server-side scheme check; the admin Reports view in particular
+// renders user-submitted URLs.
+export function safeExternalUrl(url: string | null | undefined): string | undefined {
+  if (!url) return undefined;
+  try {
+    return new URL(url).protocol === 'https:' ? url : undefined;
+  } catch {
+    return undefined;
+  }
+}

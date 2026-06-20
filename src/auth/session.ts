@@ -2,7 +2,7 @@ import type { Context } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 
 import type { Env, SessionData } from '../env.js';
-import { decrypt, encrypt, randomToken } from './crypto.js';
+import { decrypt, encrypt, randomToken, sha256Hex } from './crypto.js';
 
 const COOKIE = 'rs_session';
 const SESSION_TTL_DAYS = 14;
@@ -29,14 +29,17 @@ export async function createSession<E extends AppEnv>(
   user: { login: string; name: string | null; avatarUrl: string; scopes: string; token: string },
 ): Promise<void> {
   const id = randomToken(32);
+  const idHash = await sha256Hex(id);
   const tokenEnc = await encrypt(user.token, c.env.SESSION_SECRET);
   const expiresAt = Date.now() + SESSION_TTL_DAYS * 24 * 60 * 60 * 1000;
 
+  // Store only the hash of the id; the raw id lives solely in the cookie. A D1
+  // read therefore yields no replayable session credential.
   await c.env.DB.prepare(
     `INSERT INTO sessions (id, login, name, avatar_url, scopes, token_enc, expires_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
   )
-    .bind(id, user.login, user.name, user.avatarUrl, user.scopes, tokenEnc, expiresAt)
+    .bind(idHash, user.login, user.name, user.avatarUrl, user.scopes, tokenEnc, expiresAt)
     .run();
 
   setCookie(c, COOKIE, id, {
@@ -51,14 +54,15 @@ export async function createSession<E extends AppEnv>(
 export async function getSession<E extends AppEnv>(c: Context<E>): Promise<SessionData | null> {
   const id = getCookie(c, COOKIE);
   if (!id) return null;
+  const idHash = await sha256Hex(id);
 
   const row = await c.env.DB.prepare(`SELECT * FROM sessions WHERE id = ?`)
-    .bind(id)
+    .bind(idHash)
     .first<SessionRow>();
   if (!row) return null;
 
   if (row.expires_at < Date.now()) {
-    await c.env.DB.prepare(`DELETE FROM sessions WHERE id = ?`).bind(id).run();
+    await c.env.DB.prepare(`DELETE FROM sessions WHERE id = ?`).bind(idHash).run();
     return null;
   }
 
@@ -79,10 +83,18 @@ export async function getSession<E extends AppEnv>(c: Context<E>): Promise<Sessi
   };
 }
 
+// Bulk-delete sessions whose TTL has passed. Called from the daily cron so the
+// encrypted-token rows of abandoned sessions don't linger past their expiry
+// (getSession only deletes the one id it looks up).
+export async function sweepExpiredSessions(env: Env, now: number): Promise<void> {
+  await env.DB.prepare(`DELETE FROM sessions WHERE expires_at < ?`).bind(now).run();
+}
+
 export async function destroySession<E extends AppEnv>(c: Context<E>): Promise<void> {
   const id = getCookie(c, COOKIE);
   if (id) {
-    await c.env.DB.prepare(`DELETE FROM sessions WHERE id = ?`).bind(id).run();
+    const idHash = await sha256Hex(id);
+    await c.env.DB.prepare(`DELETE FROM sessions WHERE id = ?`).bind(idHash).run();
   }
   deleteCookie(c, COOKIE, { path: '/' });
 }

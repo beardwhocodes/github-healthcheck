@@ -1,0 +1,9 @@
+# Security headers for the static SPA. Cloudflare's static-assets runtime applies
+# these to asset responses (the Worker only handles /api, /auth, /email and sets
+# its own equivalent headers). Keep the CSP in sync with `CSP` in src/index.ts.
+/*
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Strict-Transport-Security: max-age=63072000; includeSubDomains
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https://avatars.githubusercontent.com https://*.githubusercontent.com data:; connect-src 'self'; font-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'

@@ -10,10 +10,9 @@ APP_URL="http://localhost:8787"
 GITHUB_CLIENT_ID="your_dev_oauth_app_client_id"
 GITHUB_CLIENT_SECRET="your_dev_oauth_app_client_secret"
 
-# Random 32+ char string used to derive session-cookie + OAuth-state keys.
-# Generate with: openssl rand -hex 32
+# Random 32+ char string used to derive session-cookie + OAuth-state keys AND to
+# encrypt GitHub tokens at rest. Generate with: openssl rand -hex 32
 SESSION_SECRET="change_me_to_a_long_random_string"
 
-# Optional: Resend API key for sending impersonation-alert emails.
-# Leave unset to log alerts instead of sending them.
-RESEND_API_KEY=""
+# Email is sent via the Cloudflare Email Sending `EMAIL` binding (wrangler.jsonc),
+# not an API key — nothing else to configure here.

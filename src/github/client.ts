@@ -22,6 +22,11 @@ export function isValidName(name: string): boolean {
   return NAME_RE.test(name) && !name.includes('..');
 }
 
+// Cap README text before the heuristics engine parses it. The regex passes are
+// linear, but an uncapped ~1 MB README is still wasted CPU per scan (amplified by
+// clone detection + the daily cron); 256 KB is far beyond any real README.
+const README_MAX_CHARS = 256 * 1024;
+
 function b64ToUtf8(b64: string): string {
   const clean = b64.replace(/\s/g, '');
   const binary = atob(clean);
@@ -106,7 +111,8 @@ export class GitHubClient {
     if (!resp.ok) throw new GitHubApiError(`readme ${resp.status}`, resp.status);
     const data = (await resp.json()) as { content?: string; encoding?: string };
     if (!data.content) return null;
-    return data.encoding === 'base64' ? b64ToUtf8(data.content) : data.content;
+    const text = data.encoding === 'base64' ? b64ToUtf8(data.content) : data.content;
+    return text.length > README_MAX_CHARS ? text.slice(0, README_MAX_CHARS) : text;
   }
 
   async getRecentCommits(owner: string, name: string, perPage = 5): Promise<RawCommit[]> {
