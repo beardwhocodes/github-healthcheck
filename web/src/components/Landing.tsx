@@ -38,10 +38,8 @@ export function Landing() {
           cloned to spread malware?
         </h1>
         <p className="lede">
-          A documented campaign clones real repositories untouched, adds one poisoned README linking
-          to a trojan, and ships it under throwaway accounts — ~10,000 of them, undetected for over a
-          year. Sign in and get a security report for your account, your repositories, and any copies
-          of your work hiding on GitHub.
+          Sign in and get a security report on your account, your repositories, and any clones of
+          your work.
         </p>
         <div className="cta-row">
           <a className="btn github" href={loginUrl(includePrivate)}>
