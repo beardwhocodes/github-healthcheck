@@ -248,6 +248,8 @@ admin.post('/reports/:id', async (c) => {
 // ── Audit log ────────────────────────────────────────────────────────────
 admin.get('/audit', async (c) => {
   const limit = Number(c.req.query('limit') ?? 100) || 100;
-  const entries = await listAudit(c.env, limit);
+  const cat = c.req.query('category');
+  const category = cat === 'logins' || cat === 'actions' ? cat : 'all';
+  const entries = await listAudit(c.env, { limit, category });
   return c.json({ entries });
 });

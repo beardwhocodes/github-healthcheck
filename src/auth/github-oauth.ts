@@ -4,7 +4,8 @@ import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import type { Env } from '../env.js';
 import { randomToken, sign, verify } from './crypto.js';
 import { createSession, destroySession } from './session.js';
-import { upsertUserOnLogin } from '../users/store.js';
+import { getUser, upsertUserOnLogin } from '../users/store.js';
+import { recordAudit } from '../admin/audit.js';
 
 const STATE_COOKIE = 'rs_oauth_state';
 
@@ -101,18 +102,30 @@ oauth.get('/callback', async (c) => {
   const scopes = tokenJson.scope ?? '';
   const includesPrivate = scopes.split(/[ ,]+/).includes('repo');
 
-  // Durable identity record (also re-promotes the bootstrap admin). Best-effort:
-  // a failure here must not block sign-in.
+  // Durable identity record (also re-promotes the bootstrap admin), then an audit
+  // entry for the sign-in. Both best-effort: a failure must not block sign-in.
   try {
+    const now = Date.now();
     await upsertUserOnLogin(c.env, {
       login: user.login,
       name: user.name,
       avatarUrl: user.avatar_url,
       includesPrivate,
-      now: Date.now(),
+      now,
+    });
+    // Read back the (possibly just-promoted) role so the audit detail flags
+    // admin sign-ins; record the login to the audit trail.
+    const record = await getUser(c.env, user.login);
+    const role = record?.role ?? 'user';
+    await recordAudit(c.env, {
+      adminLogin: user.login,
+      action: 'login',
+      target: null,
+      detail: `${role}${includesPrivate ? ' · private repos' : ''}`,
+      now,
     });
   } catch (err) {
-    console.log(`[auth] user upsert failed for ${user.login}: ${String(err)}`);
+    console.log(`[auth] login bookkeeping failed for ${user.login}: ${String(err)}`);
   }
 
   await createSession(c, {

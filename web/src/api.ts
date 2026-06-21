@@ -274,7 +274,10 @@ export const api = {
       ),
     updateReport: (id: string, patch: { status?: ReportStatus; notes?: string }) =>
       send<{ report: AdminReport }>(`/api/admin/reports/${encodeURIComponent(id)}`, 'POST', patch),
-    audit: (limit = 100) => get<{ entries: AuditEntry[] }>(`/api/admin/audit?limit=${limit}`),
+    audit: (category?: string, limit = 200) =>
+      get<{ entries: AuditEntry[] }>(
+        `/api/admin/audit?limit=${limit}${category && category !== 'all' ? `&category=${category}` : ''}`,
+      ),
   },
 };
 

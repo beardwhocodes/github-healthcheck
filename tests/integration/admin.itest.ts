@@ -11,6 +11,7 @@ import { encrypt, randomToken, sha256Hex } from '../../src/auth/crypto.js';
 import { getUser, upsertUserOnLogin } from '../../src/users/store.js';
 import { listActiveSubscriptions } from '../../src/alerts/store.js';
 import { scansPerDay } from '../../src/scans/store.js';
+import { listAudit, recordAudit } from '../../src/admin/audit.js';
 
 const DB = (env as unknown as { DB: D1Database }).DB;
 const SESSION_SECRET = (env as unknown as { SESSION_SECRET: string }).SESSION_SECRET;
@@ -332,6 +333,45 @@ describe('scansPerDay buckets by the viewer timezone (real SQLite date shift)', 
 
     const cairo = await scansPerDay(appEnv, since, -120); // UTC+2 → 01:00 on the 20th
     expect(cairo).toEqual([{ day: '2026-06-20', count: 1 }]);
+  });
+});
+
+describe('audit log records sign-ins and filters by category (real D1)', () => {
+  it('separates logins from admin actions', async () => {
+    const now = Date.now();
+    await recordAudit(appEnv, { adminLogin: 'mallory', action: 'login', target: null, detail: 'user', now });
+    await recordAudit(appEnv, { adminLogin: 'copyjosh', action: 'login', target: null, detail: 'admin', now: now + 1 });
+    await recordAudit(appEnv, {
+      adminLogin: 'copyjosh',
+      action: 'suspend_user',
+      target: 'bob',
+      detail: 'Abuse',
+      now: now + 2,
+    });
+
+    const all = await listAudit(appEnv, { category: 'all' });
+    expect(all.length).toBe(3);
+
+    const logins = await listAudit(appEnv, { category: 'logins' });
+    expect(logins.length).toBe(2);
+    expect(logins.every((e) => e.action === 'login')).toBe(true);
+
+    const actions = await listAudit(appEnv, { category: 'actions' });
+    expect(actions.length).toBe(1);
+    expect(actions[0]?.action).toBe('suspend_user');
+  });
+
+  it('serves the filtered audit feed to an admin via the endpoint', async () => {
+    await seedUser({ login: 'copyjosh', role: 'admin' });
+    const now = Date.now();
+    await recordAudit(appEnv, { adminLogin: 'eve', action: 'login', target: null, detail: 'user', now });
+    await recordAudit(appEnv, { adminLogin: 'copyjosh', action: 'set_role', target: 'eve', detail: 'admin', now: now + 1 });
+
+    const res = await SELF.fetch(url('/api/admin/audit?category=logins'), as(await seedSession('copyjosh')));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { entries: { action: string }[] };
+    expect(body.entries.length).toBe(1);
+    expect(body.entries[0]?.action).toBe('login');
   });
 });
 
