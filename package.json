@@ -2,6 +2,7 @@
   "name": "github-healthcheck",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "description": "GitHub Healthcheck — sign in with GitHub and get a security report for your account and repositories, detecting the malware-distribution clone campaign documented at orchidfiles.com.",
   "type": "module",
   "scripts": {

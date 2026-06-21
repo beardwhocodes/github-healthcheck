@@ -71,7 +71,7 @@ React + Vite SPA  ──>  Cloudflare Worker (Hono)  ──>  GitHub REST/GraphQ
                        ├─ routes/   /api/me /report /scan /clones /alerts
                        └─ alerts/   D1 store, email, daily cron re-scan
                               │
-                       D1 (SQLite)  +  Cron Trigger (daily)  +  Email (Resend)
+                       D1 (SQLite)  +  Cron Trigger (daily)  +  Email (Cloudflare)
 ```
 
 - **Sessions** are server-side: the GitHub token is AES-GCM encrypted at rest in D1; the browser
