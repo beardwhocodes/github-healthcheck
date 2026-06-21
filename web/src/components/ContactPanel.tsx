@@ -48,7 +48,7 @@ export function ContactPanel({ defaultEmail }: { defaultEmail?: string }) {
   return (
     <div>
       <div className="card">
-        <h3 className="section-title">Contact support</h3>
+        <h3 className="section-title">Contact us</h3>
         <p className="muted small" style={{ margin: '4px 0 0', maxWidth: 620 }}>
           Questions, a false positive, or something not working? Send us a note. Add your email if
           you&apos;d like a reply by mail.

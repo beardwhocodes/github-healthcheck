@@ -22,7 +22,7 @@ export function SuspendedNotice({
       </p>
       {onContact && (
         <button className="btn mt8" onClick={onContact}>
-          Contact support
+          Contact us
         </button>
       )}
     </div>
