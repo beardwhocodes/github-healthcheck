@@ -90,6 +90,49 @@ export interface ScanAuditItem extends ScanLogItem {
   login: string;
 }
 
+// A distinct scanned target, aggregated across all users.
+export interface TopScannedItem {
+  target: string;
+  kind: string;
+  scans: number;
+  scanners: number; // distinct users who scanned it
+  lastScanned: number;
+}
+
+// Most-scanned distinct targets (repos/accounts), busiest first. Self-audits and
+// clone scans have no target (they cover the caller's own repos) so they're
+// excluded. `kind` is functionally determined by the target shape, so SQLite's
+// bare-column pick within the GROUP BY returns the correct, constant value.
+export async function topScannedTargets(env: Env, limit = 20): Promise<TopScannedItem[]> {
+  const { results } = await env.DB.prepare(
+    `SELECT target,
+            kind,
+            COUNT(*) AS scans,
+            COUNT(DISTINCT login) AS scanners,
+            MAX(created_at) AS last_scanned
+       FROM scans
+      WHERE target IS NOT NULL AND target <> ''
+      GROUP BY target
+      ORDER BY scans DESC, last_scanned DESC
+      LIMIT ?`,
+  )
+    .bind(Math.max(1, Math.min(limit, 200)))
+    .all<{
+      target: string;
+      kind: string;
+      scans: number;
+      scanners: number;
+      last_scanned: number;
+    }>();
+  return (results ?? []).map((r) => ({
+    target: r.target,
+    kind: r.kind,
+    scans: r.scans,
+    scanners: r.scanners,
+    lastScanned: r.last_scanned,
+  }));
+}
+
 // Most recent scans across ALL users, newest first, optionally filtered by kind.
 // Powers the admin "Scan log" audit view.
 export async function listRecentScans(
