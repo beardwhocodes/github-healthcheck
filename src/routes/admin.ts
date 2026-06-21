@@ -23,7 +23,9 @@ import {
   suspendUser,
   unsuspendUser,
 } from '../users/store.js';
-import { recentScansForUser } from '../scans/store.js';
+import { listRecentScans, recentScansForUser } from '../scans/store.js';
+import { SCAN_KINDS } from '../admin/constants.js';
+import type { ScanKind } from '../admin/constants.js';
 import {
   getMessage,
   listMessages,
@@ -62,8 +64,23 @@ function audit(
 
 // ── Overview ──────────────────────────────────────────────────────────────
 admin.get('/stats', async (c) => {
-  const stats = await getAdminStats(c.env, Date.now());
+  // Viewer's UTC offset (minutes, getTimezoneOffset() convention) so calendar-day
+  // metrics render in their local timezone. Clamp to the real-world ±14h range.
+  const raw = Number(c.req.query('tzOffset'));
+  const offsetMinutes = Number.isFinite(raw) ? Math.max(-840, Math.min(840, Math.trunc(raw))) : 0;
+  const stats = await getAdminStats(c.env, Date.now(), offsetMinutes);
   return c.json(stats);
+});
+
+// ── Scan log (audit of what's been scanned, across all users) ─────────────
+admin.get('/scans', async (c) => {
+  const kindParam = c.req.query('kind');
+  const kind = (SCAN_KINDS as readonly string[]).includes(kindParam ?? '')
+    ? (kindParam as ScanKind)
+    : undefined;
+  const limit = Number(c.req.query('limit') ?? 200) || 200;
+  const scans = await listRecentScans(c.env, { kind, limit });
+  return c.json({ scans });
 });
 
 // ── Users ─────────────────────────────────────────────────────────────────
