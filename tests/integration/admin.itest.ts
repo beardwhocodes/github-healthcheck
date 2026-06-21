@@ -10,6 +10,7 @@ import type { Env } from '../../src/env.js';
 import { encrypt, randomToken, sha256Hex } from '../../src/auth/crypto.js';
 import { getUser, upsertUserOnLogin } from '../../src/users/store.js';
 import { listActiveSubscriptions } from '../../src/alerts/store.js';
+import { scansPerDay } from '../../src/scans/store.js';
 
 const DB = (env as unknown as { DB: D1Database }).DB;
 const SESSION_SECRET = (env as unknown as { SESSION_SECRET: string }).SESSION_SECRET;
@@ -229,6 +230,80 @@ describe('upsertUserOnLogin preserves admin state (real SQLite ON CONFLICT)', ()
       now: Date.now(),
     });
     expect((await getUser(appEnv, 'copyjosh'))?.role).toBe('admin');
+  });
+});
+
+describe('scan log audit endpoint', () => {
+  async function seedScan(args: {
+    login: string;
+    kind: string;
+    target: string | null;
+    topScore: number | null;
+    createdAt: number;
+  }): Promise<void> {
+    await DB.prepare(
+      `INSERT INTO scans (id, login, kind, target, top_score, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+      .bind(randomToken(8), args.login, args.kind, args.target, args.topScore, args.createdAt)
+      .run();
+  }
+
+  it('returns 404 to a non-admin and the feed to an admin', async () => {
+    await seedUser({ login: 'mallory', role: 'user' });
+    await seedUser({ login: 'copyjosh', role: 'admin' });
+    await seedScan({ login: 'mallory', kind: 'repo', target: 'evil/clone', topScore: 88, createdAt: Date.now() });
+
+    const denied = await SELF.fetch(url('/api/admin/scans'), as(await seedSession('mallory')));
+    expect(denied.status).toBe(404);
+
+    const ok = await SELF.fetch(url('/api/admin/scans'), as(await seedSession('copyjosh')));
+    expect(ok.status).toBe(200);
+    const body = (await ok.json()) as { scans: { login: string; kind: string; target: string | null }[] };
+    expect(body.scans.length).toBe(1);
+    expect(body.scans[0]).toMatchObject({ login: 'mallory', kind: 'repo', target: 'evil/clone' });
+  });
+
+  it('filters by kind', async () => {
+    await seedUser({ login: 'copyjosh', role: 'admin' });
+    const now = Date.now();
+    await seedScan({ login: 'a', kind: 'repo', target: 'x/y', topScore: 10, createdAt: now });
+    await seedScan({ login: 'a', kind: 'self', target: null, topScore: 5, createdAt: now });
+
+    const res = await SELF.fetch(url('/api/admin/scans?kind=self'), as(await seedSession('copyjosh')));
+    const body = (await res.json()) as { scans: { kind: string }[] };
+    expect(body.scans.every((s) => s.kind === 'self')).toBe(true);
+    expect(body.scans.length).toBe(1);
+  });
+});
+
+describe('scansPerDay buckets by the viewer timezone (real SQLite date shift)', () => {
+  async function seedScanAt(createdAt: number): Promise<void> {
+    await DB.prepare(
+      `INSERT INTO scans (id, login, kind, target, top_score, created_at) VALUES (?, 'u', 'self', NULL, NULL, ?)`,
+    )
+      .bind(randomToken(8), createdAt)
+      .run();
+  }
+
+  it('shifts a 02:00 UTC scan back to the previous day for a US-Eastern viewer', async () => {
+    const at = Date.parse('2026-06-20T02:00:00Z');
+    const since = Date.parse('2026-06-01T00:00:00Z');
+    await seedScanAt(at);
+
+    const utc = await scansPerDay(appEnv, since, 0);
+    expect(utc).toEqual([{ day: '2026-06-20', count: 1 }]);
+
+    const eastern = await scansPerDay(appEnv, since, 300); // UTC-5 → 21:00 on the 19th
+    expect(eastern).toEqual([{ day: '2026-06-19', count: 1 }]);
+  });
+
+  it('shifts a 23:00 UTC scan forward a day for an eastern (Cairo) viewer', async () => {
+    const at = Date.parse('2026-06-19T23:00:00Z');
+    const since = Date.parse('2026-06-01T00:00:00Z');
+    await seedScanAt(at);
+
+    const cairo = await scansPerDay(appEnv, since, -120); // UTC+2 → 01:00 on the 20th
+    expect(cairo).toEqual([{ day: '2026-06-20', count: 1 }]);
   });
 });
 

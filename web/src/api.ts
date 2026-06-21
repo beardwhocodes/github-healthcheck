@@ -71,6 +71,11 @@ export interface ScanLogItem {
   createdAt: number;
 }
 
+// A row in the global scan-audit feed (every user's scans).
+export interface ScanAuditItem extends ScanLogItem {
+  login: string;
+}
+
 export interface AdminReport {
   id: string;
   reporterLogin: string;
@@ -218,7 +223,14 @@ export const api = {
 
   // Admin surface (server returns 404 to non-admins).
   admin: {
-    stats: () => get<AdminStats>('/api/admin/stats'),
+    // Pass the viewer's UTC offset so calendar-day metrics align to their local
+    // timezone (getTimezoneOffset(): minutes to add to local to reach UTC).
+    stats: (tzOffsetMinutes = new Date().getTimezoneOffset()) =>
+      get<AdminStats>(`/api/admin/stats?tzOffset=${tzOffsetMinutes}`),
+    scans: (kind?: string) =>
+      get<{ scans: ScanAuditItem[] }>(
+        `/api/admin/scans${kind && kind !== 'all' ? `?kind=${encodeURIComponent(kind)}` : ''}`,
+      ),
     users: (params?: { query?: string; status?: string }) => {
       const qs = new URLSearchParams();
       if (params?.query) qs.set('query', params.query);
