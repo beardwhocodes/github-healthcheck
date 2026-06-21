@@ -23,7 +23,7 @@ import {
   suspendUser,
   unsuspendUser,
 } from '../users/store.js';
-import { listRecentScans, recentScansForUser } from '../scans/store.js';
+import { listRecentScans, recentScansForUser, topScannedTargets } from '../scans/store.js';
 import { SCAN_KINDS } from '../admin/constants.js';
 import type { ScanKind } from '../admin/constants.js';
 import {
@@ -81,6 +81,13 @@ admin.get('/scans', async (c) => {
   const limit = Number(c.req.query('limit') ?? 200) || 200;
   const scans = await listRecentScans(c.env, { kind, limit });
   return c.json({ scans });
+});
+
+// Most-scanned distinct targets (repos/accounts), busiest first.
+admin.get('/scans/top', async (c) => {
+  const limit = Number(c.req.query('limit') ?? 50) || 50;
+  const targets = await topScannedTargets(c.env, limit);
+  return c.json({ targets });
 });
 
 // ── Users ─────────────────────────────────────────────────────────────────

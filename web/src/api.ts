@@ -76,6 +76,15 @@ export interface ScanAuditItem extends ScanLogItem {
   login: string;
 }
 
+// A distinct scanned target, aggregated across all users.
+export interface TopScannedItem {
+  target: string;
+  kind: string;
+  scans: number;
+  scanners: number;
+  lastScanned: number;
+}
+
 export interface AdminReport {
   id: string;
   reporterLogin: string;
@@ -231,6 +240,7 @@ export const api = {
       get<{ scans: ScanAuditItem[] }>(
         `/api/admin/scans${kind && kind !== 'all' ? `?kind=${encodeURIComponent(kind)}` : ''}`,
       ),
+    topScans: () => get<{ targets: TopScannedItem[] }>('/api/admin/scans/top'),
     users: (params?: { query?: string; status?: string }) => {
       const qs = new URLSearchParams();
       if (params?.query) qs.set('query', params.query);

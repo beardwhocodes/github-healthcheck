@@ -274,6 +274,34 @@ describe('scan log audit endpoint', () => {
     expect(body.scans.every((s) => s.kind === 'self')).toBe(true);
     expect(body.scans.length).toBe(1);
   });
+
+  it('aggregates most-scanned distinct targets (excluding null-target self/clone scans)', async () => {
+    await seedUser({ login: 'copyjosh', role: 'admin' });
+    const now = Date.now();
+    // evil/clone scanned by two different users (3 total); good/repo once; a self-audit (no target).
+    await seedScan({ login: 'a', kind: 'repo', target: 'evil/clone', topScore: 90, createdAt: now - 200 });
+    await seedScan({ login: 'a', kind: 'repo', target: 'evil/clone', topScore: 90, createdAt: now - 100 });
+    await seedScan({ login: 'b', kind: 'repo', target: 'evil/clone', topScore: 90, createdAt: now });
+    await seedScan({ login: 'a', kind: 'repo', target: 'good/repo', topScore: 5, createdAt: now - 50 });
+    await seedScan({ login: 'a', kind: 'self', target: null, topScore: 0, createdAt: now });
+
+    const res = await SELF.fetch(url('/api/admin/scans/top'), as(await seedSession('copyjosh')));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      targets: { target: string; kind: string; scans: number; scanners: number }[];
+    };
+    // Two distinct targets; the null-target self-audit is excluded.
+    expect(body.targets.length).toBe(2);
+    // Busiest first: evil/clone (3 scans, 2 distinct users) ahead of good/repo.
+    expect(body.targets[0]).toMatchObject({ target: 'evil/clone', kind: 'repo', scans: 3, scanners: 2 });
+    expect(body.targets[1]).toMatchObject({ target: 'good/repo', scans: 1, scanners: 1 });
+  });
+
+  it('returns 404 to a non-admin for the most-scanned view', async () => {
+    await seedUser({ login: 'mallory', role: 'user' });
+    const res = await SELF.fetch(url('/api/admin/scans/top'), as(await seedSession('mallory')));
+    expect(res.status).toBe(404);
+  });
 });
 
 describe('scansPerDay buckets by the viewer timezone (real SQLite date shift)', () => {
