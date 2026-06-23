@@ -5,6 +5,7 @@
   "license": "MIT",
   "description": "GitHub Healthcheck — sign in with GitHub and get a security report for your account and repositories, detecting the malware-distribution clone campaign documented at orchidfiles.com.",
   "type": "module",
+  "packageManager": "pnpm@10.28.1",
   "scripts": {
     "dev": "concurrently -k -n web,api -c cyan,magenta \"npm:dev:web\" \"npm:dev:api\"",
     "dev:web": "vite",
