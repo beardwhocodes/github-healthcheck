@@ -113,7 +113,8 @@ export function AdminReports() {
       ) : reports.length === 0 ? (
         <p className="faint small mt16">No reports yet.</p>
       ) : (
-        <table className="data-table mt16">
+        <div className="table-scroll mt16">
+          <table className="data-table">
           <thead>
             <tr>
               <th>Suspect repo</th>
@@ -199,7 +200,8 @@ export function AdminReports() {
               </tr>
             ))}
           </tbody>
-        </table>
+          </table>
+        </div>
       )}
     </div>
   );

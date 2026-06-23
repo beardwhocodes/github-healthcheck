@@ -102,7 +102,8 @@ function RecentFeed() {
       ) : scans.length === 0 ? (
         <p className="faint small mt16">No scans recorded yet.</p>
       ) : (
-        <table className="data-table mt16">
+        <div className="table-scroll mt16">
+          <table className="data-table">
           <thead>
             <tr>
               <th>When</th>
@@ -138,7 +139,8 @@ function RecentFeed() {
               );
             })}
           </tbody>
-        </table>
+          </table>
+        </div>
       )}
     </div>
   );
@@ -181,7 +183,8 @@ function MostScanned() {
       ) : targets.length === 0 ? (
         <p className="faint small mt16">No repos or accounts have been scanned yet.</p>
       ) : (
-        <table className="data-table mt16">
+        <div className="table-scroll mt16">
+          <table className="data-table">
           <thead>
             <tr>
               <th>Target</th>
@@ -213,7 +216,8 @@ function MostScanned() {
               );
             })}
           </tbody>
-        </table>
+          </table>
+        </div>
       )}
     </div>
   );

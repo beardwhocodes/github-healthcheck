@@ -113,7 +113,8 @@ export function AdminUsers() {
       ) : users.length === 0 ? (
         <p className="faint center-state">No users match.</p>
       ) : (
-        <table className="data-table mt16">
+        <div className="table-scroll mt16">
+          <table className="data-table">
           <thead>
             <tr>
               <th>User</th>
@@ -214,7 +215,8 @@ export function AdminUsers() {
               );
             })}
           </tbody>
-        </table>
+          </table>
+        </div>
       )}
     </div>
   );
