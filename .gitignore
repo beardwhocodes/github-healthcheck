@@ -11,3 +11,4 @@ web/dist/
 *.log
 coverage/
 .temp/
+web/.prerender/
