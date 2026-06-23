@@ -42,6 +42,12 @@ export function App() {
     api.me().then(setMe).catch(() => setMe(null));
   }, []);
 
+  async function handleSignOut() {
+    clearCachedReport();
+    await api.logout().catch(() => {});
+    setMe(null);
+  }
+
   if (me === undefined) {
     return (
       <div className="center-state">
@@ -71,46 +77,58 @@ export function App() {
         <Brand />
         <div className="header-right">
           <SupportButton />
-          <UserChip me={me} onSignOut={() => setMe(null)} />
+          <UserChip me={me} onSignOut={handleSignOut} />
         </div>
       </header>
       <div className="container">
         <nav className="nav">
-          {/* On mobile the tabs collapse behind this toggle; it shows the
-              current section and is hidden on desktop (see styles.css). */}
+          {/* On mobile the tabs and account actions collapse behind this
+              toggle, which shows the current section and the user's avatar;
+              it is hidden on desktop (see styles.css). */}
           <button
             type="button"
             className="nav-toggle"
-            aria-label="Sections menu"
+            aria-label="Menu"
             aria-expanded={menuOpen}
-            aria-controls="nav-tabs"
+            aria-controls="nav-menu"
             onClick={() => setMenuOpen((open) => !open)}
           >
             <span className="nav-toggle-icon" aria-hidden="true">☰</span>
             <span className="nav-toggle-label">
               {tabs.find((t) => t.id === activeTab)?.label ?? 'Menu'}
             </span>
+            <img className="nav-toggle-avatar" src={me.avatarUrl} alt="" />
           </button>
-          <div
-            id="nav-tabs"
-            className={`tabs ${menuOpen ? 'open' : ''}`}
-            role="tablist"
-            aria-label="Report sections"
-          >
-            {tabs.map((t) => (
+          <div id="nav-menu" className={`nav-menu ${menuOpen ? 'open' : ''}`}>
+            <div className="tabs" role="tablist" aria-label="Report sections">
+              {tabs.map((t) => (
+                <button
+                  key={t.id}
+                  role="tab"
+                  aria-selected={activeTab === t.id}
+                  className={`tab ${activeTab === t.id ? 'active' : ''}`}
+                  onClick={() => {
+                    setTab(t.id);
+                    setMenuOpen(false);
+                  }}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            <div className="nav-user">
+              <span className="nav-user-name">{me.login}</span>
               <button
-                key={t.id}
-                role="tab"
-                aria-selected={activeTab === t.id}
-                className={`tab ${activeTab === t.id ? 'active' : ''}`}
+                type="button"
+                className="btn ghost small"
                 onClick={() => {
-                  setTab(t.id);
                   setMenuOpen(false);
+                  void handleSignOut();
                 }}
               >
-                {t.label}
+                Sign out
               </button>
-            ))}
+            </div>
           </div>
         </nav>
 
@@ -145,16 +163,11 @@ function Brand() {
 }
 
 function UserChip({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
-  async function signOut() {
-    clearCachedReport();
-    await api.logout().catch(() => {});
-    onSignOut();
-  }
   return (
     <div className="user-chip">
       <img src={me.avatarUrl} alt="" />
       <span className="small muted">{me.login}</span>
-      <button className="btn ghost small" style={{ padding: '6px 12px' }} onClick={signOut}>
+      <button className="btn ghost small" style={{ padding: '6px 12px' }} onClick={onSignOut}>
         Sign out
       </button>
     </div>
