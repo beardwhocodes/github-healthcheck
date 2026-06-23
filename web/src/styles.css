@@ -808,3 +808,51 @@ input::placeholder {
   background: #2a2113;
   color: #ffe9c2;
 }
+
+/* ── Responsive / mobile ───────────────────────────────────────────────── */
+
+/* Wide data tables get a horizontal-scroll container so they never force the
+   whole page to scroll sideways on a phone. Applied around every .data-table. */
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Phones and small tablets (portrait). */
+@media (max-width: 720px) {
+  .container { padding: 0 16px 64px; }
+
+  /* Header: let the brand and the action cluster wrap onto two lines when they
+     don't fit; keep the actions pinned to the right in both cases. */
+  .header { padding: 14px 16px; flex-wrap: wrap; gap: 10px 12px; }
+  .header-right { margin-left: auto; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+
+  /* Hero scales down so the headline doesn't overflow narrow screens. */
+  .hero { padding: 36px 0 28px; }
+  .hero-logo { width: 64px; height: 64px; margin-bottom: 16px; }
+  .hero h1 { font-size: 30px; }
+  .hero p.lede { font-size: 16px; }
+
+  /* Account summary stacks the meta block below the gauge/avatar when tight. */
+  .summary-head { flex-wrap: wrap; gap: 14px; }
+  .summary-head .meta { min-width: 200px; }
+  .summary-head .meta h2 { font-size: 19px; }
+
+  .card { padding: 16px; }
+
+  /* Tables: tighten cells and keep a sensible min width inside the scroller
+     so columns stay legible rather than crushing to nothing. */
+  .data-table th,
+  .data-table td { padding: 8px; }
+  .table-scroll .data-table { min-width: 540px; }
+}
+
+/* Narrow phones. */
+@media (max-width: 440px) {
+  .hero { padding: 28px 0 22px; }
+  .hero h1 { font-size: 25px; }
+  .hero p.lede { font-size: 15px; }
+  .brand { font-size: 17px; }
+  .feature { padding: 16px; }
+  .input-row input { min-width: 160px; }
+}
