@@ -2,74 +2,103 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { ApiError, api } from './api.js';
 import type { Me, SelfReportResponse } from './api.js';
+import { setAuthed, wasAuthed } from './authHint.js';
 import { AccountReportView } from './components/AccountReportView.js';
 import { AdminPanel } from './components/admin/AdminPanel.js';
 import { AlertsPanel } from './components/AlertsPanel.js';
+import { Brand } from './components/Brand.js';
 import { ClonesPanel } from './components/ClonesPanel.js';
 import { ContactPanel } from './components/ContactPanel.js';
 import { Footer } from './components/Footer.js';
-import { Landing } from './components/Landing.js';
 import { ScanAnyPanel } from './components/ScanAnyPanel.js';
+import { SignedOut } from './components/SignedOut.js';
 import { SupportButton } from './components/SupportButton.js';
 import { SuspendedNotice } from './components/SuspendedNotice.js';
+import { TAB_PATH, TAB_TITLE, pathToTab, tabsFor } from './nav.js';
+import type { Tab } from './nav.js';
 import { clearCachedReport, readCachedReport, writeCachedReport } from './reportCache.js';
 import { timeAgo } from './ui.js';
 
-type Tab = 'self' | 'clones' | 'scan' | 'alerts' | 'contact' | 'admin';
-
-function tabsFor(me: Me): { id: Tab; label: string }[] {
-  const scanTabs: { id: Tab; label: string }[] = me.suspended
-    ? []
-    : [
-        { id: 'self', label: 'My report' },
-        { id: 'clones', label: 'Clone detection' },
-        { id: 'scan', label: 'Scan any repo' },
-        { id: 'alerts', label: 'Alerts' },
-      ];
-  return [
-    ...scanTabs,
-    { id: 'contact', label: 'Contact' },
-    ...(me.isAdmin ? [{ id: 'admin' as Tab, label: '⚙ Admin' }] : []),
-  ];
-}
-
 export function App() {
   const [me, setMe] = useState<Me | null | undefined>(undefined); // undefined = loading
-  const [tab, setTab] = useState<Tab>('self');
-  const [menuOpen, setMenuOpen] = useState(false); // mobile nav (hamburger) open state
 
   useEffect(() => {
-    api.me().then(setMe).catch(() => setMe(null));
+    api
+      .me()
+      .then((m) => {
+        setMe(m);
+        setAuthed(true);
+      })
+      .catch(() => {
+        setMe(null);
+        setAuthed(false);
+      });
   }, []);
 
   async function handleSignOut() {
     clearCachedReport();
+    setAuthed(false);
     await api.logout().catch(() => {});
     setMe(null);
   }
 
+  // While the session check is in flight: returning users (per the local hint)
+  // see a spinner; everyone else sees the prerendered landing — the same markup
+  // crawlers and no-JS visitors get, so there's no flash for new visitors.
   if (me === undefined) {
-    return (
+    return wasAuthed() ? (
       <div className="center-state">
         <span className="spinner" />
       </div>
+    ) : (
+      <SignedOut />
     );
   }
 
   if (me === null) {
-    return (
-      <>
-        <header className="header">
-          <Brand />
-        </header>
-        <Landing />
-        <Footer />
-      </>
-    );
+    return <SignedOut />;
   }
 
+  return <SignedInApp me={me} onSignOut={handleSignOut} />;
+}
+
+function SignedInApp({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
+  const [path, setPath] = useState(() => window.location.pathname);
+  const [menuOpen, setMenuOpen] = useState(false); // mobile nav (hamburger)
+
+  // Reflect browser back/forward into the active section.
+  useEffect(() => {
+    const onPop = () => setPath(window.location.pathname);
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
   const tabs = tabsFor(me);
-  const activeTab: Tab = tabs.some((t) => t.id === tab) ? tab : (tabs[0]?.id ?? 'contact');
+  const requested = pathToTab(path);
+  const activeTab: Tab = tabs.some((t) => t.id === requested)
+    ? requested
+    : (tabs[0]?.id ?? 'contact');
+
+  // Keep the URL and document title aligned with the resolved section. If the
+  // path named a section this user can't see, normalize it in place (no new
+  // history entry).
+  useEffect(() => {
+    const wanted = TAB_PATH[activeTab];
+    if (window.location.pathname !== wanted) {
+      window.history.replaceState(null, '', wanted);
+      setPath(wanted);
+    }
+    document.title = `${TAB_TITLE[activeTab]} · GitHub Healthcheck`;
+  }, [activeTab]);
+
+  function navigate(next: Tab) {
+    const to = TAB_PATH[next];
+    if (window.location.pathname !== to) {
+      window.history.pushState(null, '', to);
+    }
+    setPath(to);
+    setMenuOpen(false);
+  }
 
   return (
     <>
@@ -77,7 +106,7 @@ export function App() {
         <Brand />
         <div className="header-right">
           <SupportButton />
-          <UserChip me={me} onSignOut={handleSignOut} />
+          <UserChip me={me} onSignOut={onSignOut} />
         </div>
       </header>
       <div className="container">
@@ -107,10 +136,7 @@ export function App() {
                   role="tab"
                   aria-selected={activeTab === t.id}
                   className={`tab ${activeTab === t.id ? 'active' : ''}`}
-                  onClick={() => {
-                    setTab(t.id);
-                    setMenuOpen(false);
-                  }}
+                  onClick={() => navigate(t.id)}
                 >
                   {t.label}
                 </button>
@@ -123,7 +149,7 @@ export function App() {
                 className="btn ghost small"
                 onClick={() => {
                   setMenuOpen(false);
-                  void handleSignOut();
+                  onSignOut();
                 }}
               >
                 Sign out
@@ -147,18 +173,6 @@ export function App() {
       </div>
       <Footer />
     </>
-  );
-}
-
-function Brand() {
-  return (
-    <div className="brand">
-      <img className="logo" src="/logo.png" alt="" width={32} height={32} />
-      <div>
-        GitHub Healthcheck
-        <small>GitHub malware &amp; clone scanner</small>
-      </div>
-    </div>
   );
 }
 
