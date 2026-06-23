@@ -856,3 +856,67 @@ input::placeholder {
   .feature { padding: 16px; }
   .input-row input { min-width: 160px; }
 }
+
+/* ── Mobile nav (hamburger) ────────────────────────────────────────────── */
+
+/* The section tabs collapse into a tap-to-open menu on narrow screens. The
+   toggle is hidden on desktop, where the tabs stay a normal horizontal row. */
+.nav-toggle {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .nav-toggle {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    margin: 8px 0 16px;
+    padding: 11px 14px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .nav-toggle:hover {
+    background: var(--bg-elev);
+  }
+  .nav-toggle-icon {
+    font-size: 17px;
+    line-height: 1;
+    color: var(--text-dim);
+  }
+
+  /* Tabs become a collapsible vertical menu, hidden until the toggle opens it. */
+  .tabs {
+    display: none;
+    flex-direction: column;
+    gap: 0;
+    margin: -8px 0 20px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+  }
+  .tabs.open {
+    display: flex;
+  }
+  .tabs .tab {
+    width: 100%;
+    margin: 0;
+    padding: 12px 14px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  .tabs .tab:last-child {
+    border-bottom: none;
+  }
+  .tabs .tab.active {
+    background: var(--bg-elev);
+    color: var(--text);
+    border-bottom-color: var(--border);
+    box-shadow: inset 3px 0 0 var(--accent);
+  }
+}
