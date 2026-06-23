@@ -840,11 +840,11 @@ input::placeholder {
 
   .card { padding: 16px; }
 
-  /* Tables: tighten cells and keep a sensible min width inside the scroller
-     so columns stay legible rather than crushing to nothing. */
+  /* Tables: tighten cells. The .table-scroll wrapper lets a genuinely wide
+     table scroll within its card instead of breaking the page; tables that
+     already fit stay fully visible — no forced min-width that hides columns. */
   .data-table th,
   .data-table td { padding: 8px; }
-  .table-scroll .data-table { min-width: 540px; }
 }
 
 /* Narrow phones. */
