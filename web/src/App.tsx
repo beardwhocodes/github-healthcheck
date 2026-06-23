@@ -36,6 +36,7 @@ function tabsFor(me: Me): { id: Tab; label: string }[] {
 export function App() {
   const [me, setMe] = useState<Me | null | undefined>(undefined); // undefined = loading
   const [tab, setTab] = useState<Tab>('self');
+  const [menuOpen, setMenuOpen] = useState(false); // mobile nav (hamburger) open state
 
   useEffect(() => {
     api.me().then(setMe).catch(() => setMe(null));
@@ -74,19 +75,44 @@ export function App() {
         </div>
       </header>
       <div className="container">
-        <div className="tabs" role="tablist" aria-label="Report sections">
-          {tabs.map((t) => (
-            <button
-              key={t.id}
-              role="tab"
-              aria-selected={activeTab === t.id}
-              className={`tab ${activeTab === t.id ? 'active' : ''}`}
-              onClick={() => setTab(t.id)}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+        <nav className="nav">
+          {/* On mobile the tabs collapse behind this toggle; it shows the
+              current section and is hidden on desktop (see styles.css). */}
+          <button
+            type="button"
+            className="nav-toggle"
+            aria-label="Sections menu"
+            aria-expanded={menuOpen}
+            aria-controls="nav-tabs"
+            onClick={() => setMenuOpen((open) => !open)}
+          >
+            <span className="nav-toggle-icon" aria-hidden="true">☰</span>
+            <span className="nav-toggle-label">
+              {tabs.find((t) => t.id === activeTab)?.label ?? 'Menu'}
+            </span>
+          </button>
+          <div
+            id="nav-tabs"
+            className={`tabs ${menuOpen ? 'open' : ''}`}
+            role="tablist"
+            aria-label="Report sections"
+          >
+            {tabs.map((t) => (
+              <button
+                key={t.id}
+                role="tab"
+                aria-selected={activeTab === t.id}
+                className={`tab ${activeTab === t.id ? 'active' : ''}`}
+                onClick={() => {
+                  setTab(t.id);
+                  setMenuOpen(false);
+                }}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </nav>
 
         {me.suspended && (
           <div style={{ marginBottom: 16 }}>
