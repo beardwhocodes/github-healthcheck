@@ -5,7 +5,12 @@ import { evaluateAccount, evaluateRepo } from '../engine/evaluate.js';
 import type { Env } from '../env.js';
 import { findClonesForRepos } from '../github/clone-detection.js';
 import { GitHubApiError, isValidName } from '../github/client.js';
-import { buildAccountSnapshot, buildRepoSnapshot, mapWithConcurrency } from '../github/snapshot.js';
+import {
+  buildAccountSnapshot,
+  buildRepoSnapshotSafe,
+  mapWithConcurrency,
+} from '../github/snapshot.js';
+import type { RepoSnapshot } from '../engine/types.js';
 import { isAdminUser } from '../admin/policy.js';
 import type { ScanKind } from '../admin/constants.js';
 import { recordScan } from '../scans/store.js';
@@ -67,9 +72,10 @@ scan.get('/report', requireNotSuspended, rateLimit(SCAN_BURST, SCAN_DAILY), asyn
 
     const rawRepos = await client.listRepos({ login: session.login, self: true });
     const selected = rawRepos.slice(0, limit);
-    const snapshots = await mapWithConcurrency(selected, 4, (raw) =>
-      buildRepoSnapshot(client, raw),
+    const snapshotsRaw = await mapWithConcurrency(selected, 4, (raw) =>
+      buildRepoSnapshotSafe(client, raw),
     );
+    const snapshots = snapshotsRaw.filter((s): s is RepoSnapshot => s !== null);
 
     const report = evaluateAccount({ account, repos: snapshots, now });
     logScan(c, { kind: 'self', target: null, topScore: report.score });
@@ -92,7 +98,10 @@ scan.get('/scan', requireNotSuspended, rateLimit(SCAN_BURST, SCAN_DAILY), async 
   try {
     if (target.kind === 'repo') {
       const raw = await client.getRepo(target.owner, target.name);
-      const snapshot = await buildRepoSnapshot(client, raw, { includeTree: true });
+      const snapshot = await buildRepoSnapshotSafe(client, raw, { includeTree: true });
+      if (!snapshot) {
+        return c.json({ error: 'scan_failed', message: 'The scan could not be completed.' }, 500);
+      }
       const report = evaluateRepo(snapshot, { now });
       logScan(c, { kind: 'repo', target: `${target.owner}/${target.name}`, topScore: report.score });
       return c.json({ kind: 'repo', report });
@@ -102,7 +111,10 @@ scan.get('/scan', requireNotSuspended, rateLimit(SCAN_BURST, SCAN_DAILY), async 
     const account = buildAccountSnapshot(rawUser, null); // 2FA unknowable for others
     const rawRepos = await client.listRepos({ login: target.owner, self: false });
     const selected = rawRepos.slice(0, DEFAULT_REPO_LIMIT);
-    const snapshots = await mapWithConcurrency(selected, 4, (r) => buildRepoSnapshot(client, r));
+    const snapshotsRaw = await mapWithConcurrency(selected, 4, (r) =>
+      buildRepoSnapshotSafe(client, r),
+    );
+    const snapshots = snapshotsRaw.filter((s): s is RepoSnapshot => s !== null);
     const report = evaluateAccount({ account, repos: snapshots, now });
     logScan(c, { kind: 'account', target: target.owner, topScore: report.score });
     return c.json({ kind: 'account', report, scanned: snapshots.length, totalRepos: rawRepos.length });
