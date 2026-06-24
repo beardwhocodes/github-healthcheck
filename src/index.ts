@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { csrf } from 'hono/csrf';
 
 import { runImpersonationScan } from './alerts/cron.js';
 import { oauth } from './auth/github-oauth.js';
@@ -51,6 +52,19 @@ app.route('/email', email);
 
 // Authenticated JSON API.
 const api = new Hono<{ Bindings: Env; Variables: Vars }>();
+api.use('*', csrf());          // same-origin check on unsafe methods
+// Additional Origin check for JSON mutation requests (hono/csrf guards form
+// submissions; this gate covers application/json API calls on the same group).
+api.use('*', async (c, next) => {
+  const safeMethods = /^(GET|HEAD|OPTIONS|TRACE)$/;
+  if (!safeMethods.test(c.req.method)) {
+    const origin = c.req.header('origin');
+    if (origin !== undefined && origin !== new URL(c.req.url).origin) {
+      return c.json({ error: 'forbidden', message: 'Cross-origin request rejected.' }, 403);
+    }
+  }
+  await next();
+});
 api.use('*', requireAuth);
 api.route('/', scan);
 api.route('/', alerts);
