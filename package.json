@@ -19,12 +19,14 @@
     "deploy": "echo 'Production deploys run in CI on push to master (.github/workflows/deploy.yml). Do not deploy from a local machine.' && exit 1",
     "db:init": "wrangler d1 migrations apply github-healthcheck-db --local",
     "db:migrate:remote": "wrangler d1 migrations apply github-healthcheck-db --remote",
-    "db:migrations:list": "wrangler d1 migrations list github-healthcheck-db --local"
+    "db:migrations:list": "wrangler d1 migrations list github-healthcheck-db --local",
+    "lint": "biome ci ."
   },
   "dependencies": {
     "hono": "^4.6.14"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.1",
     "@cloudflare/vitest-pool-workers": "^0.6.16",
     "@cloudflare/workers-types": "^4.20241218.0",
     "@types/react": "^18.3.18",
