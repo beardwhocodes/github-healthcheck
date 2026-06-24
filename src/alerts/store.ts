@@ -171,7 +171,7 @@ export async function getWatchedRepos(env: Env, login: string): Promise<string[]
 
 export async function getKnownSuspectRepos(env: Env, login: string): Promise<Set<string>> {
   const { results } = await env.DB.prepare(
-    `SELECT suspect_repo FROM known_clones WHERE login = ?`,
+    `SELECT suspect_repo FROM known_clones WHERE login = ? AND notified = 1`,
   )
     .bind(login)
     .all<{ suspect_repo: string }>();
@@ -186,8 +186,10 @@ export async function recordClones(
   if (clones.length === 0) return;
   const stmts = clones.map((clone) =>
     env.DB.prepare(
-      `INSERT OR IGNORE INTO known_clones (login, source_repo, suspect_repo, confidence, first_seen, notified)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO known_clones (login, source_repo, suspect_repo, confidence, first_seen, notified)
+         VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(login, suspect_repo) DO UPDATE SET
+         notified = CASE WHEN excluded.notified = 1 THEN 1 ELSE known_clones.notified END`,
     ).bind(
       login,
       clone.sourceRepo,
