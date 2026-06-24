@@ -142,3 +142,17 @@ export async function buildRepoSnapshot(
     treePaths,
   };
 }
+
+// Tolerant wrapper: returns null if buildRepoSnapshot throws, so a single bad
+// repo doesn't abort the entire account scan.
+export async function buildRepoSnapshotSafe(
+  client: GitHubClient,
+  raw: Record<string, unknown>,
+  opts: BuildRepoOptions = {},
+): Promise<RepoSnapshot | null> {
+  try {
+    return await buildRepoSnapshot(client, raw, opts);
+  } catch {
+    return null;
+  }
+}
