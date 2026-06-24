@@ -9,13 +9,14 @@ import {
   listActiveSubscriptions,
   recordClones,
   setLastRun,
+  type Subscription,
 } from './store.js';
 import { sendImpersonationAlert } from './email.js';
 
 // Daily re-scan: for each active subscriber, re-run clone detection over their
 // watched repos, diff against the known baseline, and email only the NEW ones.
 export async function runImpersonationScan(env: Env, now: number): Promise<void> {
-  let subscriptions;
+  let subscriptions: Subscription[];
   try {
     subscriptions = await listActiveSubscriptions(env);
   } catch (err) {
