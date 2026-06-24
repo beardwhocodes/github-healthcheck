@@ -3,6 +3,7 @@ import type { Env } from '../env.js';
 import type { CloneMatch } from '../engine/types.js';
 import { findClonesForRepos } from '../github/clone-detection.js';
 import { GitHubClient } from '../github/client.js';
+import { mapWithConcurrency } from '../github/snapshot.js';
 import {
   getKnownSuspectRepos,
   getWatchedRepos,
@@ -23,7 +24,10 @@ export async function runImpersonationScan(env: Env, now: number): Promise<void>
     return;
   }
 
-  for (const sub of subscriptions) {
+  // Small concurrency: GitHub search shares one secondary-rate-limit pool, and
+  // findClonesForRepos already fans out internally (concurrency 2 and 3).
+  const CRON_CONCURRENCY = 3;
+  await mapWithConcurrency(subscriptions, CRON_CONCURRENCY, async (sub) => {
     try {
       const token = await decrypt(sub.tokenEnc, env.SESSION_SECRET);
       const client = new GitHubClient(token);
@@ -31,7 +35,7 @@ export async function runImpersonationScan(env: Env, now: number): Promise<void>
       const watched = await getWatchedRepos(env, sub.login);
       if (watched.length === 0) {
         await setLastRun(env, sub.login, now);
-        continue;
+        return;
       }
 
       // We only need the source repos' name/owner; description/stars are looked
@@ -73,7 +77,7 @@ export async function runImpersonationScan(env: Env, now: number): Promise<void>
     } catch (err) {
       console.log(`[cron] scan failed for ${sub.login}: ${String(err)}`);
     }
-  }
+  });
 }
 
 function dedupeBySuspect(matches: CloneMatch[]): CloneMatch[] {
