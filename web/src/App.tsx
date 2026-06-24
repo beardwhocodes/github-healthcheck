@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 
 import { ApiError, api } from './api.js';
 import type { Me, SelfReportResponse } from './api.js';
 import { setAuthed, wasAuthed } from './authHint.js';
 import { AccountReportView } from './components/AccountReportView.js';
-import { AdminPanel } from './components/admin/AdminPanel.js';
+const AdminPanel = lazy(() =>
+  import('./components/admin/AdminPanel.js').then((m) => ({ default: m.AdminPanel })),
+);
 import { AlertsPanel } from './components/AlertsPanel.js';
 import { Brand } from './components/Brand.js';
 import { ClonesPanel } from './components/ClonesPanel.js';
@@ -169,7 +171,11 @@ function SignedInApp({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
         {activeTab === 'scan' && <ScanAnyPanel />}
         {activeTab === 'alerts' && <AlertsPanel />}
         {activeTab === 'contact' && <ContactPanel />}
-        {activeTab === 'admin' && <AdminPanel />}
+        {activeTab === 'admin' && (
+          <Suspense fallback={<div className="center-state"><span className="spinner" /></div>}>
+            <AdminPanel />
+          </Suspense>
+        )}
       </div>
       <Footer />
     </>

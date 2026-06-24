@@ -6,7 +6,6 @@
 import { env, SELF } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import type { Env } from '../../src/env.js';
 import { encrypt, randomToken, sha256Hex } from '../../src/auth/crypto.js';
 import { WRITE_BURST } from '../../src/routes/rate-limit.js';
 
