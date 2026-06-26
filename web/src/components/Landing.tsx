@@ -29,7 +29,7 @@ export function Landing() {
   const [includePrivate, setIncludePrivate] = useState(false);
 
   return (
-    <div className="container">
+    <main className="container">
       <div className="hero">
         <img className="hero-logo" src="/logo.png" alt="" width={80} height={80} />
         <h1>
@@ -84,7 +84,7 @@ export function Landing() {
         </a>
         .
       </p>
-    </div>
+    </main>
   );
 }
 

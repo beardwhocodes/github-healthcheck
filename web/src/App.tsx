@@ -111,7 +111,7 @@ function SignedInApp({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
           <UserChip me={me} onSignOut={onSignOut} />
         </div>
       </header>
-      <div className="container">
+      <main className="container">
         <nav className="nav">
           {/* On mobile the tabs and account actions collapse behind this
               toggle, which shows the current section and the user's avatar;
@@ -176,7 +176,7 @@ function SignedInApp({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
             <AdminPanel />
           </Suspense>
         )}
-      </div>
+      </main>
       <Footer />
     </>
   );

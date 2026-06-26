@@ -38,7 +38,7 @@ export function BandBadge({ band }: { band: RiskBand }) {
 }
 
 export function SeverityDot({ severity }: { severity: Severity }) {
-  return <span className={`sev-dot ${sevClass(severity)}`} aria-label={severity} />;
+  return <span className={`sev-dot ${sevClass(severity)}`} role="img" aria-label={severity} />;
 }
 
 export function FindingItem({ finding }: { finding: Finding }) {
