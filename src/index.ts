@@ -23,7 +23,7 @@ const app = new Hono<{ Bindings: Env; Variables: Vars }>();
 // carry the equivalent policy from web/public/_headers.
 const CSP = [
   "default-src 'self'",
-  "script-src 'self'",
+  "script-src 'self' https://static.cloudflareinsights.com",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' https://avatars.githubusercontent.com https://*.githubusercontent.com data:",
   "connect-src 'self'",

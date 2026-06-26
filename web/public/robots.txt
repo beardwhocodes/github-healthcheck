@@ -1,0 +1,5 @@
+# https://github-healthcheck.beardwho.codes
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /auth/
