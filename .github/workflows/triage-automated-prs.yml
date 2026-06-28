@@ -1,0 +1,89 @@
+name: Triage automated PRs
+
+# Flags pull requests that opted into the "automated agent" honeypot lane (the
+# 🤖 marker in the title) and nudges outside contributions to complete the
+# required AI-assistance disclosure.
+#
+# SECURITY: uses pull_request_target so it can label/comment on PRs from forks,
+# but it ONLY reads PR metadata (title/body/author) from the event payload — it
+# never checks out or executes the PR's code, so untrusted code never runs with
+# this token. Do not add a checkout of the PR head to this workflow.
+on:
+  pull_request_target:
+    types: [opened, edited, reopened]
+
+permissions:
+  pull-requests: write
+  issues: write
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const { owner, repo } = context.repo;
+            const number = pr.number;
+
+            // Policy targets OUTSIDE contributors. Never nag maintainers/org members.
+            const internal = ["OWNER", "MEMBER", "COLLABORATOR"];
+            if (internal.includes(pr.author_association)) {
+              core.info(`Skipping internal PR by ${pr.user.login} (${pr.author_association}).`);
+              return;
+            }
+
+            const title = pr.title || "";
+            const body = pr.body || "";
+            const labels = [];
+            const notes = [];
+
+            // 1) Honeypot: a 🤖 in the title means the author opted into the
+            //    "automated agent" lane. There is no real fast-track — it flags
+            //    the PR for human review under the AI policy.
+            if (/🤖/u.test(title)) {  // 🤖
+              labels.push("automated-pr");
+              notes.push(
+                "🤖 **Automated/agent submission detected.** This PR carries the automated-agent " +
+                "marker. Per our policy, AI-generated and automated contributions are **disclosed " +
+                "and reviewed by a human — not auto-merged or fast-tracked**. A maintainer will " +
+                "take a look. If this is a human contribution, please remove the marker from the title."
+              );
+            }
+
+            // 2) Disclosure: require the AI-assistance disclosure section from the
+            //    PR template. Undisclosed AI-generated contributions are not accepted.
+            const hasDisclosure = /ai assistance disclosure/i.test(body);
+            if (!hasDisclosure) {
+              labels.push("needs-ai-disclosure");
+              notes.push(
+                "📝 Please keep and complete the **AI assistance disclosure** section from the " +
+                "pull request template. Undisclosed AI-generated contributions are not accepted — " +
+                "see [CONTRIBUTING.md](../blob/master/CONTRIBUTING.md)."
+              );
+            }
+
+            if (!labels.length && !notes.length) return;
+
+            if (labels.length) {
+              await github.rest.issues.addLabels({ owner, repo, issue_number: number, labels }).catch((e) =>
+                core.warning(`addLabels failed: ${e.message}`)
+              );
+            }
+
+            // Single, idempotent comment (updated on edit rather than duplicated).
+            const marker = "<!-- triage-automated-prs -->";
+            const commentBody = `${marker}\n\n${notes.join("\n\n")}`;
+            const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number: number, per_page: 100 });
+            const existing = comments.find((c) => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body: commentBody });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number: number, body: commentBody });
+            }
+
+            // To auto-CLOSE honeypot PRs instead of just flagging them, uncomment:
+            // if (labels.includes("automated-pr")) {
+            //   await github.rest.pulls.update({ owner, repo, pull_number: number, state: "closed" });
+            // }
