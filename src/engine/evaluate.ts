@@ -164,12 +164,17 @@ export function cloneConfidence(report: RepoReport, signals: CloneSignals): {
     reasons.push('published as a standalone repo, not a GitHub fork');
   }
 
-  // The suspect's own MALWARE report is the dominant factor — but exclude the
-  // 'not-fork-but-duplicate' finding, which is itself a same-name structural
-  // signal (counting it would double-count and let a benign name collision
-  // bootstrap its own "malware" score).
+  // The suspect's own MALWARE report is the dominant factor — but exclude two
+  // classes of finding that would otherwise let a benign same-name repo
+  // bootstrap its own "malware" score:
+  //  - 'not-fork-but-duplicate', itself a same-name structural signal (counting
+  //    it would double-count the structural confidence already added above);
+  //  - any severity-'low' finding, which on a per-repo report means a demoted/
+  //    unarmed tampering signal or a non-arming README mention (e.g. a
+  //    GitHub-release link). These must not register as malware here, or the
+  //    structural-only cap below never engages for benign README collisions.
   const malwareScore = scoreFromFindings(
-    report.findings.filter((f) => f.id !== 'not-fork-but-duplicate'),
+    report.findings.filter((f) => f.id !== 'not-fork-but-duplicate' && f.severity !== 'low'),
   );
   confidence += Math.round(malwareScore * 0.5);
   if (malwareScore > 0) {

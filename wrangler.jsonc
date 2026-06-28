@@ -8,6 +8,8 @@
   // Production custom domain. On deploy, wrangler provisions the DNS record and
   // TLS cert for this hostname automatically, provided the parent zone
   // (beardwho.codes) is active in the same Cloudflare account.
+  // FORK NOTE: github-healthcheck.beardwho.codes is the maintainer's example
+  // domain — replace it (and APP_URL / the email sender below) with your own.
   "routes": [{ "pattern": "github-healthcheck.beardwho.codes", "custom_domain": true }],
 
   // Serve the built React SPA (web/dist) as static assets. The Worker handles
@@ -23,15 +25,17 @@
 
   // Cloudflare Email Sending — transactional verification + alert emails.
   // The from domain (github-healthcheck.beardwho.codes) must be onboarded:
-  //   npx wrangler email sending enable github-healthcheck.beardwho.codes
+  //   pnpm exec wrangler email sending enable github-healthcheck.beardwho.codes
   // For local `wrangler dev` that actually sends, add "remote": true here.
+  // FORK NOTE: the sender address below is the maintainer's example — replace it
+  // with one on your own onboarded domain (keep it in sync with ALERT_FROM_EMAIL).
   "send_email": [
     { "name": "EMAIL", "allowed_sender_addresses": ["noreply@github-healthcheck.beardwho.codes"] }
   ],
 
   // D1: sessions, users, scans, support inbox, reports, alert subscriptions.
   // Schema lives in ./migrations and is applied with `wrangler d1 migrations
-  // apply` (CI on deploy; `npm run db:init` locally) — each file runs once.
+  // apply` (CI on deploy; `pnpm db:init` locally) — each file runs once.
   "d1_databases": [
     {
       "binding": "DB",
@@ -54,9 +58,17 @@
     // Public, non-secret config. PRODUCTION values live here; local dev overrides
     // APP_URL / GITHUB_CLIENT_ID via .dev.vars. Secrets (GITHUB_CLIENT_SECRET,
     // SESSION_SECRET) go in .dev.vars locally and `wrangler secret put` in prod.
+    // FORK NOTE: all three values below are the maintainer's examples — replace
+    // APP_URL with your domain, GITHUB_CLIENT_ID with your OAuth App's id, and
+    // ALERT_FROM_EMAIL with an address on your onboarded sender domain.
     "APP_URL": "https://github-healthcheck.beardwho.codes",
     "GITHUB_CLIENT_ID": "Ov23liY3KuEfojvgelK9",
-    "ALERT_FROM_EMAIL": "noreply@github-healthcheck.beardwho.codes"
+    "ALERT_FROM_EMAIL": "noreply@github-healthcheck.beardwho.codes",
+    // Comma-separated GitHub logins that are ALWAYS admins, re-promoted on every
+    // sign-in (survives a DB reset). This is the maintainer's bootstrap admin for
+    // THIS deployment — FORK NOTE: change it to your own login (or leave unset for
+    // no permanent superadmin and promote the first admin from the UI).
+    "ADMIN_LOGINS": "copyjosh"
     // Optional: set ADMIN_EMAIL here to be emailed when a new support message
     // arrives (e.g. "ADMIN_EMAIL": "you@example.com"). Unset = dashboard only.
   }

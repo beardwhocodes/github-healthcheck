@@ -22,6 +22,9 @@ export default defineWorkersConfig({
             ALERT_FROM_EMAIL: 'noreply@test.local',
             GITHUB_CLIENT_SECRET: 'test-client-secret',
             SESSION_SECRET: 'integration-test-session-secret-0123456789abcdef',
+            // Bootstrap-admin list (env-sourced since the hardening pass): the
+            // admin/rate-limit tests exercise copyjosh as the permanent admin.
+            ADMIN_LOGINS: 'copyjosh',
           },
         },
       },

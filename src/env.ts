@@ -31,6 +31,9 @@ export interface Env {
   // Optional: if set, new support-inbox messages are emailed here. Unset is fine
   // (the admin still sees everything in the dashboard).
   ADMIN_EMAIL?: string;
+  // Optional: comma-separated GitHub logins granted admin at sign-in (the
+  // bootstrap-admin list). Consumed by the admin domain, not here. Unset = empty.
+  ADMIN_LOGINS?: string;
 
   // Secrets.
   GITHUB_CLIENT_SECRET: string;

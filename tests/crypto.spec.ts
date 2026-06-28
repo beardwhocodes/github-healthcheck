@@ -9,7 +9,9 @@ import {
   verify,
 } from '../src/auth/crypto.js';
 
-const S = 'test-secret-key';
+// Must be >= 32 chars: crypto now fails closed on weak SESSION_SECRET.
+const S = 'test-secret-key-0123456789abcdef0123';
+const S2 = 'another-secret-key-0123456789abcdef01';
 
 // ---------------------------------------------------------------------------
 // encrypt / decrypt
@@ -33,7 +35,7 @@ describe('encrypt / decrypt', () => {
 
   it('rejects decryption with a different secret', async () => {
     const ct = await encrypt('secret data', S);
-    await expect(decrypt(ct, 'other-secret')).rejects.toThrow();
+    await expect(decrypt(ct, S2)).rejects.toThrow();
   });
 
   it('rejects a tampered ciphertext (flipped char after the dot)', async () => {
@@ -43,8 +45,25 @@ describe('encrypt / decrypt', () => {
     await expect(decrypt(flipped, S)).rejects.toThrow();
   });
 
-  it('rejects a payload with no dot with /malformed/', async () => {
-    await expect(decrypt('nodothere', S)).rejects.toThrow(/malformed/);
+  it('throws /malformed/ for a current-version payload with no dot', async () => {
+    await expect(decrypt('v1:nodot', S)).rejects.toThrow(/malformed/);
+  });
+
+  it('returns null (not a throw) for an unknown or absent version marker', async () => {
+    // A blob from a different scheme — caller treats null as "needs re-auth".
+    expect(await decrypt('v2:abc.def', S)).toBeNull();
+    expect(await decrypt('nodothere', S)).toBeNull();
+  });
+
+  it('prefixes the ciphertext with the version marker', async () => {
+    expect(await encrypt('x', S)).toMatch(/^v1:/);
+  });
+
+  it('throws when SESSION_SECRET is shorter than 32 chars', async () => {
+    await expect(encrypt('x', 'too-short-secret')).rejects.toThrow(/SESSION_SECRET/);
+    await expect(decrypt(await encrypt('x', S), 'too-short-secret')).rejects.toThrow(
+      /SESSION_SECRET/,
+    );
   });
 });
 
@@ -65,7 +84,13 @@ describe('sign / verify', () => {
 
   it('returns null when verified with a different secret', async () => {
     const signed = await sign('value', S);
-    expect(await verify(signed, 'other-secret')).toBeNull();
+    expect(await verify(signed, S2)).toBeNull();
+  });
+
+  it('returns null (no throw) for a non-base64 signature segment', async () => {
+    // Regression: fromBase64('@@@') used to throw OUTSIDE the verify .catch,
+    // surfacing as a 500 for input like rs_oauth_state=foo.@@@.
+    expect(await verify('foo.@@@', S)).toBeNull();
   });
 
   it('round-trips a value that itself contains dots (splits on last dot)', async () => {

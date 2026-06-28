@@ -41,7 +41,7 @@ export function ClonesPanel() {
               work — a verbatim clone of your code with a single poisoned README.
             </p>
           </div>
-          <button className="btn" onClick={run} disabled={loading}>
+          <button type="button" className="btn" onClick={run} disabled={loading}>
             {loading ? <span className="spinner" /> : '🔍'} Scan for clones
           </button>
         </div>
@@ -152,13 +152,14 @@ function CloneMatchCard({ match }: { match: CloneMatch }) {
             ⚠ Report to GitHub
           </a>
           <button
+            type="button"
             className="btn ghost small"
             onClick={copyEvidence}
             style={{ padding: '6px 12px' }}
           >
             {copied ? '✓ Copied evidence' : '📋 Copy evidence'}
           </button>
-          <button className="btn ghost small" onClick={() => setOpen((v) => !v)} style={{ padding: '6px 12px' }}>
+          <button type="button" className="btn ghost small" onClick={() => setOpen((v) => !v)} style={{ padding: '6px 12px' }}>
             {open ? 'Hide' : 'Show'} {match.report.findings.length} finding
             {match.report.findings.length === 1 ? '' : 's'}
           </button>

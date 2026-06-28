@@ -14,5 +14,9 @@ GITHUB_CLIENT_SECRET="your_dev_oauth_app_client_secret"
 # encrypt GitHub tokens at rest. Generate with: openssl rand -hex 32
 SESSION_SECRET="change_me_to_a_long_random_string"
 
+# Optional: comma-separated GitHub logins granted admin at sign-in (the
+# bootstrap-admin list). Leave empty for no configured admins.
+ADMIN_LOGINS=""
+
 # Email is sent via the Cloudflare Email Sending `EMAIL` binding (wrangler.jsonc),
 # not an API key — nothing else to configure here.

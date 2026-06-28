@@ -44,6 +44,14 @@ export function App() {
     setMe(null);
   }
 
+  // The server already destroyed the session as part of DELETE /api/me, so this
+  // just resets client state back to the signed-out landing.
+  function handleAccountDeleted() {
+    clearCachedReport();
+    setAuthed(false);
+    setMe(null);
+  }
+
   // While the session check is in flight: returning users (per the local hint)
   // see a spinner; everyone else sees the prerendered landing — the same markup
   // crawlers and no-JS visitors get, so there's no flash for new visitors.
@@ -61,10 +69,20 @@ export function App() {
     return <SignedOut />;
   }
 
-  return <SignedInApp me={me} onSignOut={handleSignOut} />;
+  return (
+    <SignedInApp me={me} onSignOut={handleSignOut} onAccountDeleted={handleAccountDeleted} />
+  );
 }
 
-function SignedInApp({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
+function SignedInApp({
+  me,
+  onSignOut,
+  onAccountDeleted,
+}: {
+  me: Me;
+  onSignOut: () => void;
+  onAccountDeleted: () => void;
+}) {
   const [path, setPath] = useState(() => window.location.pathname);
   const [menuOpen, setMenuOpen] = useState(false); // mobile nav (hamburger)
 
@@ -135,6 +153,7 @@ function SignedInApp({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
               {tabs.map((t) => (
                 <button
                   key={t.id}
+                  type="button"
                   role="tab"
                   aria-selected={activeTab === t.id}
                   className={`tab ${activeTab === t.id ? 'active' : ''}`}
@@ -169,7 +188,7 @@ function SignedInApp({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
         {activeTab === 'self' && <SelfReport login={me.login} />}
         {activeTab === 'clones' && <ClonesPanel />}
         {activeTab === 'scan' && <ScanAnyPanel />}
-        {activeTab === 'alerts' && <AlertsPanel />}
+        {activeTab === 'alerts' && <AlertsPanel onDeleted={onAccountDeleted} />}
         {activeTab === 'contact' && <ContactPanel />}
         {activeTab === 'admin' && (
           <Suspense fallback={<div className="center-state"><span className="spinner" /></div>}>
@@ -187,7 +206,7 @@ function UserChip({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
     <div className="user-chip">
       <img src={me.avatarUrl} alt="" />
       <span className="small muted">{me.login}</span>
-      <button className="btn ghost small" style={{ padding: '6px 12px' }} onClick={onSignOut}>
+      <button type="button" className="btn ghost small" style={{ padding: '6px 12px' }} onClick={onSignOut}>
         Sign out
       </button>
     </div>
@@ -249,6 +268,7 @@ function SelfReport({ login }: { login: string }) {
           <span className="faint"> · cached for 30 min</span>
         </span>
         <button
+          type="button"
           className="btn ghost small"
           style={{ padding: '6px 12px' }}
           onClick={() => void runScan()}

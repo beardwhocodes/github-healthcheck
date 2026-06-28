@@ -167,6 +167,31 @@ describe('evaluateAccount', () => {
     expect(report.findings.map((f) => f.id)).toContain('account-no-2fa');
   });
 
+  it('does NOT flag an account whose repos link their own GitHub releases (M1)', () => {
+    // Regression (M1): a GitHub-hosted release link yields a deliberately-demoted
+    // severity-'low' readme-references-archive finding. Devs distributing their
+    // own releases across several repos must not be tarred as a "coordinated
+    // distribution account".
+    const ghReleaseRepo = (i: number) =>
+      repo({
+        name: `proj${i}`,
+        fullName: `realdev/proj${i}`,
+        readmeText: `# Proj${i}\n\nDownload: https://github.com/realdev/proj${i}/releases/download/v1/proj${i}.zip`,
+      });
+    const repos = [ghReleaseRepo(0), ghReleaseRepo(1), ghReleaseRepo(2)];
+    const report = evaluateAccount({ account: account(), repos, now: NOW });
+
+    // The low readme-references-archive finding still fires per-repo (visible)...
+    expect(
+      report.repoReports.every((r) =>
+        r.findings.some((f) => f.id === 'readme-references-archive' && f.severity === 'low'),
+      ),
+    ).toBe(true);
+    // ...but the account is NOT escalated as a coordinated distribution hub.
+    expect(report.findings.map((f) => f.id)).not.toContain('account-many-archive-readmes');
+    expect(['safe', 'low']).toContain(report.band);
+  });
+
   it('flags an account that stages many clones in a burst', () => {
     const repos = Array.from({ length: 6 }, (_, i) =>
       repo({ name: `clone${i}`, fullName: `throwaway/clone${i}`, createdAt: daysAgoIso(3 + i * 0.1) }),
@@ -233,6 +258,35 @@ describe('clone detection', () => {
     });
     // Structural-only collision (no malware, no copied description) must be
     // capped below the alert threshold (35) so common name clashes don't alert.
+    expect(confidence).toBeLessThanOrEqual(20);
+  });
+
+  it('caps a benign README-only collision (demoted-low tampering must not leak as malware)', () => {
+    // Regression (H1): a benign non-fork repo that shares a watched repo's name
+    // and whose latest commit is a README-only "Update README.md" with no real
+    // payload. Its tampering findings are demoted to severity 'low'; those must
+    // NOT register as a malware signal, so the structural-only cap engages.
+    const suspect = repo({
+      owner: 'someoneelse',
+      fullName: 'someoneelse/awesome-lib',
+      isFork: false,
+      contributorsCount: 6,
+      recentCommits: [
+        commit({ message: 'Update README.md', authorLogin: 'someoneelse', authorName: 'someoneelse', authorDate: daysAgoIso(1), changedFiles: ['README.md'] }),
+        commit({ message: 'Update README.md', authorLogin: 'someoneelse', authorName: 'someoneelse', authorDate: daysAgoIso(400), sha: 'b'.repeat(40), changedFiles: ['README.md'] }),
+      ],
+    });
+    const report = evaluateRepo(suspect, { now: NOW });
+    // Precondition: the demoted tampering findings are present and low.
+    expect(report.findings.some((f) => f.id === 'latest-commit-only-readme' && f.severity === 'low')).toBe(true);
+    const { confidence } = cloneConfidence(report, {
+      sameName: true,
+      sameDescription: false,
+      suspectIsFork: false,
+      suspectStars: 0,
+      sourceStars: 5000,
+      differentOwner: true,
+    });
     expect(confidence).toBeLessThanOrEqual(20);
   });
 

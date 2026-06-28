@@ -12,8 +12,14 @@ import {
 } from '../github/snapshot.js';
 import type { RepoSnapshot } from '../engine/types.js';
 import { isAdminUser } from '../admin/policy.js';
+import { parseAdminLogins } from '../admin/constants.js';
 import type { ScanKind } from '../admin/constants.js';
-import { recordScan } from '../scans/store.js';
+import { deleteScansStatement, recordScan } from '../scans/store.js';
+import { deleteUserStatement } from '../users/store.js';
+import { deleteAlertDataStatements } from '../alerts/store.js';
+import { deleteMessagesStatement } from '../messages/store.js';
+import { deleteReportsStatement } from '../reports/store.js';
+import { deleteSessionsStatement, destroySession } from '../auth/session.js';
 import { requireNotSuspended } from './middleware.js';
 import type { Vars } from './middleware.js';
 import { rateLimit, SCAN_BURST, SCAN_DAILY } from './rate-limit.js';
@@ -48,10 +54,43 @@ scan.get('/me', (c) => {
     avatarUrl: s.avatarUrl,
     scopes: s.scopes,
     includesPrivate: s.scopes.split(/[ ,]+/).includes('repo'),
-    isAdmin: isAdminUser(user),
+    isAdmin: isAdminUser(user, parseAdminLogins(c.env.ADMIN_LOGINS)),
     suspended: user.suspendedAt != null,
     suspendedReason: user.suspendedReason,
   });
+});
+
+// Full account deletion / data erasure. Deliberately NOT gated by
+// requireNotSuspended: a suspended user must still be able to erase their data.
+// Idempotent and best-effort — safe to retry.
+scan.delete('/me', async (c) => {
+  const login = c.get('session').login;
+
+  // 1) Best-effort: drop our app's OAuth authorization at GitHub so the token
+  //    can never be reused, before we erase our encrypted copy of it. A failure
+  //    here (GitHub down, network) must not block local erasure — the method
+  //    swallows errors and reports success/failure, it never throws.
+  const revoked = await c
+    .get('client')
+    .revokeOAuthToken(c.env.GITHUB_CLIENT_ID, c.env.GITHUB_CLIENT_SECRET);
+  if (!revoked) console.log(`[delete] GitHub token revoke not confirmed for ${login}`);
+
+  // 2) Hard-delete every row tied to this login in one atomic batch. This wipes
+  //    the encrypted token (sessions + alert_subscriptions) along with all user
+  //    data. Idempotent: a retry after the rows are gone is a clean no-op.
+  await c.env.DB.batch([
+    deleteSessionsStatement(c.env, login),
+    ...deleteAlertDataStatements(c.env, login),
+    deleteScansStatement(c.env, login),
+    deleteMessagesStatement(c.env, login),
+    deleteReportsStatement(c.env, login),
+    deleteUserStatement(c.env, login),
+  ]);
+
+  // 3) Clear the session cookie (its row is already gone from the batch above).
+  await destroySession(c);
+
+  return c.json({ ok: true });
 });
 
 // Full self-audit: the signed-in user's account + each of their repositories.
@@ -86,8 +125,10 @@ scan.get('/report', requireNotSuspended, rateLimit(SCAN_BURST, SCAN_DAILY), asyn
 });
 
 // Scan any repo (owner/name) or any account (owner). Accepts a github.com URL,
-// "owner/repo", or "owner". Only api.github.com is ever contacted.
-scan.get('/scan', requireNotSuspended, rateLimit(SCAN_BURST, SCAN_DAILY), async (c) => {
+// "owner/repo", or "owner". Only api.github.com is ever contacted. POST (not GET)
+// because it triggers work and a scan-log write: a GET would let a SameSite=Lax
+// link-click run a scan as the victim. `target` stays a query param.
+scan.post('/scan', requireNotSuspended, rateLimit(SCAN_BURST, SCAN_DAILY), async (c) => {
   const client = c.get('client');
   const now = Date.now();
   const target = parseTarget(c.req.query('target') ?? '');
@@ -123,12 +164,20 @@ scan.get('/scan', requireNotSuspended, rateLimit(SCAN_BURST, SCAN_DAILY), async 
   }
 });
 
-// Detect clones/impersonations of the signed-in user's own repositories.
-scan.get('/clones', requireNotSuspended, rateLimit(SCAN_BURST, SCAN_DAILY), async (c) => {
+// Detect clones/impersonations of the signed-in user's own repositories. POST
+// (not GET) because it triggers heavy work and a scan-log write: a GET would let
+// a SameSite=Lax link-click run a clone scan as the victim.
+scan.post('/clones', requireNotSuspended, rateLimit(SCAN_BURST, SCAN_DAILY), async (c) => {
   const client = c.get('client');
   const session = c.get('session');
   const now = Date.now();
   // Cap the number of source repos we search for (search is the scarcest quota).
+  // Subrequest-budget invariant: each source costs 1 search + up to
+  // maxCandidates (8) candidate snapshots, and each candidate snapshot with
+  // includeTree fans out to 6 GitHub subrequests (readme, commits, contributors,
+  // releases, commit-files, tree). Worst case ≈ maxSources(15) × (1 + 8×6) = 735
+  // subrequests, which (plus the initial listRepos) must stay under the Worker's
+  // 1000-subrequest-per-invocation limit. Do not raise these caps blindly.
   const maxSources = Math.min(Number(c.req.query('maxSources') ?? 10) || 10, 15);
 
   try {

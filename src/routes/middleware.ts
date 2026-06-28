@@ -4,6 +4,7 @@ import type { Env, SessionData, UserRecord } from '../env.js';
 import { GitHubClient } from '../github/client.js';
 import { getSession } from '../auth/session.js';
 import { isAdminUser } from '../admin/policy.js';
+import { parseAdminLogins } from '../admin/constants.js';
 import { ensureUser } from '../users/store.js';
 
 export interface Vars {
@@ -40,7 +41,7 @@ export async function requireAuth(c: AppCtx, next: Next): Promise<Response | voi
 // — so the admin surface is not even acknowledged to non-admins.
 export async function requireAdmin(c: AppCtx, next: Next): Promise<Response | void> {
   const user = c.get('user');
-  if (!user || !isAdminUser(user)) {
+  if (!user || !isAdminUser(user, parseAdminLogins(c.env.ADMIN_LOGINS))) {
     return c.json({ error: 'not_found' }, 404);
   }
   await next();

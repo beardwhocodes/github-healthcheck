@@ -1,6 +1,6 @@
 import { buildCloneMatch, evaluateRepo } from '../engine/evaluate.js';
 import type { CloneMatch, RepoSnapshot } from '../engine/types.js';
-import { GitHubClient } from './client.js';
+import type { GitHubClient } from './client.js';
 import { buildRepoSnapshot, mapWithConcurrency } from './snapshot.js';
 
 export interface CloneScanOptions {
@@ -26,7 +26,11 @@ export async function findClonesForRepo(
   let items: Record<string, unknown>[];
   try {
     items = await client.searchRepos(`${repoName} in:name`, 20);
-  } catch {
+  } catch (err) {
+    // Search shares a separate secondary-rate-limit pool; a failure here means
+    // no clone detection for this source, but it must not abort the scan. Log
+    // it rather than silently returning empty.
+    console.warn(`clone search failed for ${source.fullName}:`, err);
     return [];
   }
 

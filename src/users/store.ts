@@ -1,6 +1,9 @@
+import { randomToken } from '../auth/crypto.js';
 import type { Env, UserRecord } from '../env.js';
 import { isBootstrapAdmin } from '../admin/policy.js';
+import { parseAdminLogins } from '../admin/constants.js';
 import type { Role } from '../admin/constants.js';
+import type { AuditAction } from '../admin/audit.js';
 
 interface UserRow {
   login: string;
@@ -32,8 +35,27 @@ function rowToUser(row: UserRow): UserRecord {
   };
 }
 
-function initialRole(login: string): Role {
-  return isBootstrapAdmin(login) ? 'admin' : 'user';
+function initialRole(login: string, bootstrapAdmins: readonly string[]): Role {
+  return isBootstrapAdmin(login, bootstrapAdmins) ? 'admin' : 'user';
+}
+
+// Build the admin_audit INSERT so an admin mutation and its accountability row
+// commit (or fail) together in one D1 batch. A separate post-commit audit write
+// — especially a swallowed one — can lose the record of who changed what.
+function auditStatement(
+  env: Env,
+  args: { adminLogin: string; action: AuditAction; target: string | null; detail: string | null; now: number },
+): D1PreparedStatement {
+  return env.DB.prepare(
+    `INSERT INTO admin_audit (id, admin_login, action, target, detail, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+  ).bind(randomToken(12), args.adminLogin, args.action, args.target, args.detail, args.now);
+}
+
+// Hard-delete the user's identity row, for full account erasure (DELETE
+// /api/me). Returns the statement (rather than running it) so the caller can run
+// it atomically in one D1 batch alongside the other stores' deletions.
+export function deleteUserStatement(env: Env, login: string): D1PreparedStatement {
+  return env.DB.prepare(`DELETE FROM users WHERE login = ?`).bind(login);
 }
 
 export async function getUser(env: Env, login: string): Promise<UserRecord | null> {
@@ -49,7 +71,7 @@ export async function upsertUserOnLogin(
   env: Env,
   args: { login: string; name: string | null; avatarUrl: string; includesPrivate: boolean; now: number },
 ): Promise<void> {
-  const role = initialRole(args.login);
+  const role = initialRole(args.login, parseAdminLogins(env.ADMIN_LOGINS));
   const priv = args.includesPrivate ? 1 : 0;
   await env.DB.prepare(
     `INSERT INTO users (login, name, avatar_url, role, includes_private, scan_count, first_seen_at, last_seen_at)
@@ -84,7 +106,7 @@ export async function ensureUser(
   const existing = await getUser(env, args.login);
   if (existing) return existing;
 
-  const role = initialRole(args.login);
+  const role = initialRole(args.login, parseAdminLogins(env.ADMIN_LOGINS));
   const priv = args.includesPrivate ? 1 : 0;
   await env.DB.prepare(
     `INSERT OR IGNORE INTO users (login, name, avatar_url, role, includes_private, scan_count, first_seen_at, last_seen_at)
@@ -112,27 +134,57 @@ export async function ensureUser(
   );
 }
 
+// The state change and its audit row go in one atomic batch (see auditStatement).
 export async function suspendUser(
   env: Env,
   args: { login: string; reason: string; by: string; now: number },
 ): Promise<void> {
-  await env.DB.prepare(
-    `UPDATE users SET suspended_at = ?, suspended_reason = ?, suspended_by = ? WHERE login = ?`,
-  )
-    .bind(args.now, args.reason, args.by, args.login)
-    .run();
+  await env.DB.batch([
+    env.DB.prepare(
+      `UPDATE users SET suspended_at = ?, suspended_reason = ?, suspended_by = ? WHERE login = ?`,
+    ).bind(args.now, args.reason, args.by, args.login),
+    auditStatement(env, {
+      adminLogin: args.by,
+      action: 'suspend_user',
+      target: args.login,
+      detail: args.reason,
+      now: args.now,
+    }),
+  ]);
 }
 
-export async function unsuspendUser(env: Env, login: string): Promise<void> {
-  await env.DB.prepare(
-    `UPDATE users SET suspended_at = NULL, suspended_reason = NULL, suspended_by = NULL WHERE login = ?`,
-  )
-    .bind(login)
-    .run();
+export async function unsuspendUser(
+  env: Env,
+  args: { login: string; by: string; now: number },
+): Promise<void> {
+  await env.DB.batch([
+    env.DB.prepare(
+      `UPDATE users SET suspended_at = NULL, suspended_reason = NULL, suspended_by = NULL WHERE login = ?`,
+    ).bind(args.login),
+    auditStatement(env, {
+      adminLogin: args.by,
+      action: 'unsuspend_user',
+      target: args.login,
+      detail: null,
+      now: args.now,
+    }),
+  ]);
 }
 
-export async function setUserRole(env: Env, login: string, role: Role): Promise<void> {
-  await env.DB.prepare(`UPDATE users SET role = ? WHERE login = ?`).bind(role, login).run();
+export async function setUserRole(
+  env: Env,
+  args: { login: string; role: Role; by: string; now: number },
+): Promise<void> {
+  await env.DB.batch([
+    env.DB.prepare(`UPDATE users SET role = ? WHERE login = ?`).bind(args.role, args.login),
+    auditStatement(env, {
+      adminLogin: args.by,
+      action: 'set_role',
+      target: args.login,
+      detail: args.role,
+      now: args.now,
+    }),
+  ]);
 }
 
 export interface UserListItem extends UserRecord {
@@ -146,6 +198,12 @@ export interface UserListFilter {
   limit: number;
 }
 
+// Escape LIKE metacharacters (% and _) and the escape char itself so a user's
+// search term is matched literally. Pairs with `ESCAPE '\'` in the query.
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+}
+
 // Pure query builder, extracted so the positional-bind bookkeeping (the classic
 // off-by-one when a filter is added) is unit-testable without a DB. Placeholder
 // order MUST be: the velocity-window `?` (subquery), then any search `?`s
@@ -155,8 +213,12 @@ export function buildUserListQuery(filter: UserListFilter): { sql: string; binds
   const binds: unknown[] = [filter.since24h];
 
   if (filter.query) {
-    where.push(`(u.login LIKE ? OR u.name LIKE ?)`);
-    binds.push(`%${filter.query}%`, `%${filter.query}%`);
+    // Match the query as a literal substring: escape LIKE metacharacters so a '%'
+    // or '_' typed into the search box matches itself instead of acting as a
+    // wildcard. ESCAPE '\' tells SQLite the backslash is the escape character.
+    where.push(`(u.login LIKE ? ESCAPE '\\' OR u.name LIKE ? ESCAPE '\\')`);
+    const pattern = `%${escapeLike(filter.query)}%`;
+    binds.push(pattern, pattern);
   }
   if (filter.status === 'suspended') where.push(`u.suspended_at IS NOT NULL`);
   else if (filter.status === 'active') where.push(`u.suspended_at IS NULL`);
