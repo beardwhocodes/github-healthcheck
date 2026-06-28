@@ -41,7 +41,12 @@ app.use('*', async (c, next) => {
   c.header('X-Content-Type-Options', 'nosniff');
   c.header('Referrer-Policy', 'strict-origin-when-cross-origin');
   c.header('X-Frame-Options', 'DENY');
-  c.header('Strict-Transport-Security', 'max-age=63072000; includeSubDomains');
+  // 6 months. Matches the Cloudflare zone-level HSTS setting, which overrides
+  // this origin header at the edge — so this value exists to (a) stay honest
+  // about what is actually served and (b) act as a fallback if the zone setting
+  // is ever turned off. Bump both this and web/public/_headers (and the zone
+  // setting) together if moving to 1y/2y or pursuing HSTS preload.
+  c.header('Strict-Transport-Security', 'max-age=15552000; includeSubDomains');
   c.header('Content-Security-Policy', CSP);
 });
 
