@@ -14,7 +14,7 @@ import type { RepoSnapshot } from '../engine/types.js';
 import { isAdminUser } from '../admin/policy.js';
 import { parseAdminLogins } from '../admin/constants.js';
 import type { ScanKind } from '../admin/constants.js';
-import { deleteScansStatement, recordScan } from '../scans/store.js';
+import { recordScan } from '../scans/store.js';
 import { deleteUserStatement } from '../users/store.js';
 import { deleteAlertDataStatements } from '../alerts/store.js';
 import { deleteMessagesStatement } from '../messages/store.js';
@@ -26,16 +26,15 @@ import { rateLimit, SCAN_BURST, SCAN_DAILY } from './rate-limit.js';
 
 export const scan = new Hono<{ Bindings: Env; Variables: Vars }>();
 
-// Fire-and-forget scan log (analytics + abuse velocity). Never blocks or fails
-// the response: scheduled on the execution context and swallows its own errors.
-function logScan(
-  c: Context<{ Bindings: Env; Variables: Vars }>,
-  args: { kind: ScanKind; target: string | null; topScore: number | null },
-): void {
+// Fire-and-forget scan accounting: bumps the anonymous per-day/per-kind
+// aggregate and the user's scan_count. No target/score/identity is logged (abuse
+// velocity comes from rate_events). Never blocks or fails the response:
+// scheduled on the execution context and swallows its own errors.
+function logScan(c: Context<{ Bindings: Env; Variables: Vars }>, kind: ScanKind): void {
   const login = c.get('session').login;
   c.executionCtx.waitUntil(
-    recordScan(c.env, { login, kind: args.kind, target: args.target, topScore: args.topScore, now: Date.now() }).catch(
-      (err) => console.log(`[scan] log failed for ${login}: ${String(err)}`),
+    recordScan(c.env, { login, kind, now: Date.now() }).catch((err) =>
+      console.log(`[scan] count failed for ${login}: ${String(err)}`),
     ),
   );
 }
@@ -78,10 +77,11 @@ scan.delete('/me', async (c) => {
   // 2) Hard-delete every row tied to this login in one atomic batch. This wipes
   //    the encrypted token (sessions + alert_subscriptions) along with all user
   //    data. Idempotent: a retry after the rows are gone is a clean no-op.
+  // No scans-table deletion: scan activity is an identity-free aggregate
+  // (scan_daily) with no per-user rows, so there is nothing to erase there.
   await c.env.DB.batch([
     deleteSessionsStatement(c.env, login),
     ...deleteAlertDataStatements(c.env, login),
-    deleteScansStatement(c.env, login),
     deleteMessagesStatement(c.env, login),
     deleteReportsStatement(c.env, login),
     deleteUserStatement(c.env, login),
@@ -94,7 +94,7 @@ scan.delete('/me', async (c) => {
 });
 
 // Full self-audit: the signed-in user's account + each of their repositories.
-// POST, not GET: it writes a scan-log row (logScan), so it is state-changing and
+// POST, not GET: it bumps scan counters (logScan), so it is state-changing and
 // must sit behind the CSRF/origin gate — a victim clicking a crafted link must
 // not be able to trigger (and meter) a self-audit on their behalf.
 scan.post('/report', requireNotSuspended, rateLimit(SCAN_BURST, SCAN_DAILY), async (c) => {
@@ -120,7 +120,7 @@ scan.post('/report', requireNotSuspended, rateLimit(SCAN_BURST, SCAN_DAILY), asy
     const snapshots = snapshotsRaw.filter((s): s is RepoSnapshot => s !== null);
 
     const report = evaluateAccount({ account, repos: snapshots, now });
-    logScan(c, { kind: 'self', target: null, topScore: report.score });
+    logScan(c, 'self');
     return c.json({ report, scanned: snapshots.length, totalRepos: rawRepos.length });
   } catch (err) {
     return errorResponse(c, err);
@@ -129,8 +129,8 @@ scan.post('/report', requireNotSuspended, rateLimit(SCAN_BURST, SCAN_DAILY), asy
 
 // Scan any repo (owner/name) or any account (owner). Accepts a github.com URL,
 // "owner/repo", or "owner". Only api.github.com is ever contacted. POST (not GET)
-// because it triggers work and a scan-log write: a GET would let a SameSite=Lax
-// link-click run a scan as the victim. `target` stays a query param.
+// because it triggers work and a scan-counter write: a GET would let a
+// SameSite=Lax link-click run a scan as the victim. `target` stays a query param.
 scan.post('/scan', requireNotSuspended, rateLimit(SCAN_BURST, SCAN_DAILY), async (c) => {
   const client = c.get('client');
   const now = Date.now();
@@ -147,7 +147,7 @@ scan.post('/scan', requireNotSuspended, rateLimit(SCAN_BURST, SCAN_DAILY), async
         return c.json({ error: 'scan_failed', message: 'The scan could not be completed.' }, 500);
       }
       const report = evaluateRepo(snapshot, { now });
-      logScan(c, { kind: 'repo', target: `${target.owner}/${target.name}`, topScore: report.score });
+      logScan(c, 'repo');
       return c.json({ kind: 'repo', report });
     }
 
@@ -160,7 +160,7 @@ scan.post('/scan', requireNotSuspended, rateLimit(SCAN_BURST, SCAN_DAILY), async
     );
     const snapshots = snapshotsRaw.filter((s): s is RepoSnapshot => s !== null);
     const report = evaluateAccount({ account, repos: snapshots, now });
-    logScan(c, { kind: 'account', target: target.owner, topScore: report.score });
+    logScan(c, 'account');
     return c.json({ kind: 'account', report, scanned: snapshots.length, totalRepos: rawRepos.length });
   } catch (err) {
     return errorResponse(c, err);
@@ -168,8 +168,8 @@ scan.post('/scan', requireNotSuspended, rateLimit(SCAN_BURST, SCAN_DAILY), async
 });
 
 // Detect clones/impersonations of the signed-in user's own repositories. POST
-// (not GET) because it triggers heavy work and a scan-log write: a GET would let
-// a SameSite=Lax link-click run a clone scan as the victim.
+// (not GET) because it triggers heavy work and a scan-counter write: a GET would
+// let a SameSite=Lax link-click run a clone scan as the victim.
 scan.post('/clones', requireNotSuspended, rateLimit(SCAN_BURST, SCAN_DAILY), async (c) => {
   const client = c.get('client');
   const session = c.get('session');
@@ -197,8 +197,7 @@ scan.post('/clones', requireNotSuspended, rateLimit(SCAN_BURST, SCAN_DAILY), asy
       .slice(0, maxSources);
 
     const matches = await findClonesForRepos(client, sources, { now });
-    const topScore = matches.reduce((max, m) => Math.max(max, m.confidence), 0);
-    logScan(c, { kind: 'clones', target: null, topScore: matches.length ? topScore : null });
+    logScan(c, 'clones');
     return c.json({
       sourcesScanned: sources.length,
       sources: sources.map((s) => s.fullName),

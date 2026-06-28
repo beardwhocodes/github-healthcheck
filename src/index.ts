@@ -5,7 +5,6 @@ import { runImpersonationScan } from './alerts/cron.js';
 import { oauth } from './auth/github-oauth.js';
 import { sweepExpiredSessions } from './auth/session.js';
 import { pruneRateEvents } from './ratelimit/store.js';
-import { pruneOldScans } from './scans/store.js';
 import type { Env } from './env.js';
 import { admin } from './routes/admin.js';
 import { alerts } from './routes/alerts.js';
@@ -118,10 +117,10 @@ export default {
           console.error(`[cron] impersonation scan crashed: ${String(err)}`);
         }),
     );
-    // Daily maintenance: purge expired sessions, old rate-limit events, and
-    // scan-log rows past the 60-day retention window (bounds scans table growth).
+    // Daily maintenance: purge expired sessions and old rate-limit events. Scan
+    // activity is now an aggregate-only counter (scan_daily), which is tiny and
+    // identity-free, so there is no per-scan log to prune.
     ctx.waitUntil(sweepExpiredSessions(env, now));
     ctx.waitUntil(pruneRateEvents(env, now - 24 * 60 * 60 * 1000));
-    ctx.waitUntil(pruneOldScans(env, now - 60 * 24 * 60 * 60 * 1000));
   },
 };

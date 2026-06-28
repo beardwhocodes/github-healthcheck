@@ -37,7 +37,7 @@ export function AdminOverview() {
           Scans per day
         </h3>
         <p className="faint small" style={{ marginTop: 0 }}>
-          Last 14 days · {stats.scans.last7d} in the past week · your local time ({localTzLabel()})
+          Last 14 days · {stats.scans.last7d} in the past week · UTC days
         </p>
         <ScanBarChart data={stats.scans.perDay} />
       </div>
@@ -89,20 +89,6 @@ const KIND_LABEL: Record<string, string> = {
   account: 'Scan an account',
   clones: 'Clone detection',
 };
-
-// A short label for the viewer's timezone, e.g. "EDT" or "UTC−5".
-function localTzLabel(): string {
-  try {
-    const named = new Intl.DateTimeFormat(undefined, { timeZoneName: 'short' })
-      .formatToParts(new Date())
-      .find((p) => p.type === 'timeZoneName')?.value;
-    if (named) return named;
-  } catch {
-    /* fall through to the numeric offset */
-  }
-  const off = -new Date().getTimezoneOffset() / 60;
-  return `UTC${off >= 0 ? '+' : '−'}${Math.abs(off)}`;
-}
 
 function Stat({ num, label, sub }: { num: number; label: string; sub?: string }) {
   return (

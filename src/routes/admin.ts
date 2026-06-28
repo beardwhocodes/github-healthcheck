@@ -23,9 +23,7 @@ import {
   suspendUser,
   unsuspendUser,
 } from '../users/store.js';
-import { listRecentScans, recentScansForUser, topScannedTargets } from '../scans/store.js';
-import { SCAN_KINDS, parseAdminLogins } from '../admin/constants.js';
-import type { ScanKind } from '../admin/constants.js';
+import { parseAdminLogins } from '../admin/constants.js';
 import {
   getMessage,
   listMessages,
@@ -75,24 +73,6 @@ admin.get('/stats', async (c) => {
   return c.json(stats);
 });
 
-// ── Scan log (audit of what's been scanned, across all users) ─────────────
-admin.get('/scans', async (c) => {
-  const kindParam = c.req.query('kind');
-  const kind = (SCAN_KINDS as readonly string[]).includes(kindParam ?? '')
-    ? (kindParam as ScanKind)
-    : undefined;
-  const limit = Number(c.req.query('limit') ?? 200) || 200;
-  const scans = await listRecentScans(c.env, { kind, limit });
-  return c.json({ scans });
-});
-
-// Most-scanned distinct targets (repos/accounts), busiest first.
-admin.get('/scans/top', async (c) => {
-  const limit = Number(c.req.query('limit') ?? 50) || 50;
-  const targets = await topScannedTargets(c.env, limit);
-  return c.json({ targets });
-});
-
 // ── Users ─────────────────────────────────────────────────────────────────
 admin.get('/users', async (c) => {
   const query = c.req.query('query')?.trim() || undefined;
@@ -112,8 +92,8 @@ admin.get('/users', async (c) => {
 admin.get('/users/:login', async (c) => {
   const target = await getUser(c.env, c.req.param('login'));
   if (!target) return c.json({ error: 'not_found' }, 404);
-  const recentScans = await recentScansForUser(c.env, target.login, 25);
-  return c.json({ user: target, recentScans });
+  // No per-user scan history is retained (privacy): just the durable record.
+  return c.json({ user: target });
 });
 
 admin.post('/users/:login/suspend', async (c) => {

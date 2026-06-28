@@ -64,9 +64,6 @@ async function seedAccount(login: string): Promise<string> {
        VALUES (?, ?, ?, 90, ?, 1)`,
     ).bind(login, `${login}/repo`, 'evil/clone', now),
     DB.prepare(
-      `INSERT INTO scans (id, login, kind, target, top_score, created_at) VALUES (?, ?, 'self', NULL, 10, ?)`,
-    ).bind(randomToken(12), login, now),
-    DB.prepare(
       `INSERT INTO messages (id, login, email, subject, body, status, created_at)
        VALUES (?, ?, ?, 'hi', 'body', 'open', ?)`,
     ).bind(randomToken(12), login, `${login}@example.com`, now),
@@ -121,7 +118,6 @@ describe('DELETE /api/me (account deletion)', () => {
     expect(await countFor('alert_subscriptions', 'login', login)).toBe(0);
     expect(await countFor('watched_repos', 'login', login)).toBe(0);
     expect(await countFor('known_clones', 'login', login)).toBe(0);
-    expect(await countFor('scans', 'login', login)).toBe(0);
     expect(await countFor('messages', 'login', login)).toBe(0);
     expect(await countFor('reported_repos', 'reporter_login', login)).toBe(0);
 

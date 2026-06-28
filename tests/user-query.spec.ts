@@ -16,6 +16,15 @@ describe('buildUserListQuery', () => {
     expect(placeholderCount(sql)).toBe(binds.length);
   });
 
+  it('derives velocity from rate_events (scan-day bucket), not an identity-linked scan log', () => {
+    const { sql } = buildUserListQuery({ since24h: SINCE, status: 'all', limit: 100 });
+    // The privacy redesign reads the trailing-24h scan velocity from rate_events;
+    // the old per-scan `scans` table is gone and must not be referenced.
+    expect(sql).toContain('FROM rate_events');
+    expect(sql).toContain("bucket LIKE 'scan-day:%'");
+    expect(sql).not.toMatch(/\bFROM scans\b/);
+  });
+
   it('searches login OR name with two binds, in placeholder order', () => {
     const { sql, binds } = buildUserListQuery({
       since24h: SINCE,
