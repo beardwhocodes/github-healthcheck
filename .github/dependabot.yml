@@ -8,6 +8,19 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    # Hold the vitest / @cloudflare/vitest-pool-workers / vite MAJOR bumps: vitest
+    # 3+ requires a pool-workers that currently fails to boot the Workers
+    # integration-test pool (upstream cloudflare/workers-sdk#13581), and vite 8 is
+    # incompatible with the pinned vitest. These advisories are dev/test-only —
+    # `pnpm audit --prod` is clean (0) — so there is no production exposure. Remove
+    # these ignores and do the coordinated bump once the upstream pool fix ships.
+    ignore:
+      - dependency-name: "vitest"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@cloudflare/vitest-pool-workers"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "vite"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: "/"
