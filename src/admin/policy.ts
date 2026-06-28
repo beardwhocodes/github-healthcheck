@@ -3,7 +3,6 @@
 // are the security-critical decisions and must not depend on a mocked DB.
 
 import {
-  BOOTSTRAP_ADMIN_LOGINS,
   CONTACT_BODY_MAX,
   CONTACT_BODY_MIN,
   CONTACT_SUBJECT_MAX,
@@ -32,29 +31,42 @@ function sameLogin(a: string, b: string): boolean {
   return a.toLowerCase() === b.toLowerCase();
 }
 
-// Logins that can never be demoted or suspended, regardless of stored role.
-export function isBootstrapAdmin(login: string): boolean {
+// Logins that can never be demoted or suspended, regardless of stored role. The
+// bootstrap list is passed in (env-derived) rather than read from a module
+// constant, so this stays pure and forks decide their own permanent admins.
+export function isBootstrapAdmin(login: string, bootstrapAdmins: readonly string[]): boolean {
   const l = login.toLowerCase();
-  return BOOTSTRAP_ADMIN_LOGINS.some((a) => a.toLowerCase() === l);
+  return bootstrapAdmins.some((a) => a.toLowerCase() === l);
 }
 
 // The effective role for a login: bootstrap admins are admin no matter what the
 // row says (covers a freshly re-seeded DB or a row that predates the role column).
-export function resolveRole(login: string, storedRole: string | null | undefined): Role {
-  if (isBootstrapAdmin(login)) return 'admin';
+export function resolveRole(
+  login: string,
+  storedRole: string | null | undefined,
+  bootstrapAdmins: readonly string[],
+): Role {
+  if (isBootstrapAdmin(login, bootstrapAdmins)) return 'admin';
   return storedRole === 'admin' ? 'admin' : 'user';
 }
 
-export function isAdminUser(user: PolicyUser): boolean {
-  return resolveRole(user.login, user.role) === 'admin';
+// `bootstrapAdmins` defaults to empty so callers that only need stored-role
+// resolution (e.g. an already-persisted session user) can omit it; pass the
+// env-derived list to also honour the bootstrap override on a stale/reset row.
+export function isAdminUser(user: PolicyUser, bootstrapAdmins: readonly string[] = []): boolean {
+  return resolveRole(user.login, user.role, bootstrapAdmins) === 'admin';
 }
 
 // An admin may suspend another non-admin user. They may not suspend themselves,
 // and may not suspend another admin (admins are mutually un-suspendable).
-export function canSuspend(actor: PolicyUser, target: PolicyUser): Decision {
-  if (!isAdminUser(actor)) return { ok: false, reason: 'Not authorized.' };
+export function canSuspend(
+  actor: PolicyUser,
+  target: PolicyUser,
+  bootstrapAdmins: readonly string[],
+): Decision {
+  if (!isAdminUser(actor, bootstrapAdmins)) return { ok: false, reason: 'Not authorized.' };
   if (sameLogin(actor.login, target.login)) return { ok: false, reason: 'You cannot suspend yourself.' };
-  if (isAdminUser(target) || isBootstrapAdmin(target.login)) {
+  if (isAdminUser(target, bootstrapAdmins) || isBootstrapAdmin(target.login, bootstrapAdmins)) {
     return { ok: false, reason: 'Admins cannot be suspended.' };
   }
   return ALLOW;
@@ -62,20 +74,25 @@ export function canSuspend(actor: PolicyUser, target: PolicyUser): Decision {
 
 // Unsuspend has the same gate minus the self-check (a no-op on self, but
 // harmless); only admins may act, and there is nothing to protect on the target.
-export function canUnsuspend(actor: PolicyUser): Decision {
-  if (!isAdminUser(actor)) return { ok: false, reason: 'Not authorized.' };
+export function canUnsuspend(actor: PolicyUser, bootstrapAdmins: readonly string[]): Decision {
+  if (!isAdminUser(actor, bootstrapAdmins)) return { ok: false, reason: 'Not authorized.' };
   return ALLOW;
 }
 
 // Role changes: only admins; the requested role must be valid; you cannot change
 // your own role (no self-demotion lockout); a bootstrap admin cannot be demoted.
-export function canSetRole(actor: PolicyUser, target: PolicyUser, role: string): Decision {
-  if (!isAdminUser(actor)) return { ok: false, reason: 'Not authorized.' };
+export function canSetRole(
+  actor: PolicyUser,
+  target: PolicyUser,
+  role: string,
+  bootstrapAdmins: readonly string[],
+): Decision {
+  if (!isAdminUser(actor, bootstrapAdmins)) return { ok: false, reason: 'Not authorized.' };
   if (!isValidRole(role)) return { ok: false, reason: 'Unknown role.' };
   if (sameLogin(actor.login, target.login)) {
     return { ok: false, reason: 'You cannot change your own role.' };
   }
-  if (isBootstrapAdmin(target.login) && role !== 'admin') {
+  if (isBootstrapAdmin(target.login, bootstrapAdmins) && role !== 'admin') {
     return { ok: false, reason: 'This account is a permanent admin.' };
   }
   return ALLOW;

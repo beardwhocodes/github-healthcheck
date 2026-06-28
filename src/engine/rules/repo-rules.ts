@@ -115,20 +115,21 @@ export const readmeDownloadBadgeToArchive: RepoRule = (repo) => {
 
 // 3. README advertises a password-protected archive (defeats AV / VirusTotal).
 export const readmePasswordProtectedArchive: RepoRule = (repo) => {
-  if (!repo.readmeText) return null;
-  const matched = PASSWORD_ARCHIVE_PATTERNS.filter((re) => re.test(repo.readmeText!));
+  const readmeText = repo.readmeText;
+  if (!readmeText) return null;
+  const matched = PASSWORD_ARCHIVE_PATTERNS.filter((re) => re.test(readmeText));
   if (matched.length === 0) return null;
 
   // Require an actual archive nearby — a password phrase with NO archive (link,
   // filename token, or archive/exe release asset) is benign English ("the
   // password is hashed", an auth demo's "password: admin123"), not a locked build.
   const hasArchiveContext =
-    extractUrls(repo.readmeText).some((u) => urlHasExtension(u, BINARY_EXTENSIONS)) ||
-    findBinaryFilenameTokens(repo.readmeText).length > 0 ||
+    extractUrls(readmeText).some((u) => urlHasExtension(u, BINARY_EXTENSIONS)) ||
+    findBinaryFilenameTokens(readmeText).length > 0 ||
     repo.releaseAssets.some((a) => hasExtension(a.name, BINARY_EXTENSIONS));
   if (!hasArchiveContext) return null;
 
-  const lines = repo.readmeText
+  const lines = readmeText
     .split('\n')
     .filter((line) => PASSWORD_ARCHIVE_PATTERNS.some((re) => re.test(line)))
     .slice(0, 2)
@@ -173,18 +174,19 @@ export const readmeUrlShortener: RepoRule = (repo) => {
 
 // 5. README uses cracked/free-download social-engineering lures.
 export const readmeDownloadLure: RepoRule = (repo) => {
-  if (!repo.readmeText) return null;
-  const matched = DOWNLOAD_LURE_PATTERNS.filter((re) => re.test(repo.readmeText!));
+  const readmeText = repo.readmeText;
+  if (!readmeText) return null;
+  const matched = DOWNLOAD_LURE_PATTERNS.filter((re) => re.test(readmeText));
   if (matched.length < 1) return null;
   // Require a REAL binary reference too (an archive link or a filename token),
   // so "free to use" or "Download the docs" in a legitimate project — or a bare
   // github.com link — doesn't trip this.
   const hasBinary =
-    extractUrls(repo.readmeText).some((u) => urlHasExtension(u, BINARY_EXTENSIONS)) ||
-    findBinaryFilenameTokens(repo.readmeText).length > 0;
+    extractUrls(readmeText).some((u) => urlHasExtension(u, BINARY_EXTENSIONS)) ||
+    findBinaryFilenameTokens(readmeText).length > 0;
   if (!hasBinary) return null;
 
-  const phrases = repo.readmeText
+  const phrases = readmeText
     .split('\n')
     .filter((line) => DOWNLOAD_LURE_PATTERNS.some((re) => re.test(line)))
     .slice(0, 2)
@@ -208,7 +210,7 @@ export const latestCommitOnlyReadme: RepoRule = (repo) => {
   const latest = repo.recentCommits[0];
   if (!latest || !latest.changedFiles || latest.changedFiles.length === 0) return null;
   const onlyReadme =
-    latest.changedFiles.length === 1 && README_FILE.test(latest.changedFiles[0]!.split('/').pop() ?? '');
+    latest.changedFiles.length === 1 && README_FILE.test(latest.changedFiles[0]?.split('/').pop() ?? '');
   if (!onlyReadme) return null;
 
   return {
@@ -247,16 +249,18 @@ export const trivialReadmeCommitMessage: RepoRule = (repo) => {
 
 // 8. Code is months/years old but the README was just bumped.
 export const staleCodeFreshReadme: RepoRule = (repo) => {
-  if (repo.recentCommits.length < 2) return null;
+  // Needs at least the two most recent commits; the destructure guard both
+  // enforces that and narrows each to a defined CommitInfo.
   const [latest, previous] = repo.recentCommits;
-  const gapHours = hoursBetween(latest!.authorDate, previous!.authorDate);
+  if (!latest || !previous) return null;
+  const gapHours = hoursBetween(latest.authorDate, previous.authorDate);
   if (gapHours < THRESHOLDS.staleCodeGapHours) return null;
 
   // Only meaningful if the fresh commit looks like a README touch.
-  const latestMessage = latest!.message.split('\n')[0]?.trim() ?? '';
+  const latestMessage = latest.message.split('\n')[0]?.trim() ?? '';
   const looksLikeReadme =
     TRIVIAL_COMMIT_MESSAGES.some((re) => re.test(latestMessage)) ||
-    (latest!.changedFiles?.every((f) => README_FILE.test(f.split('/').pop() ?? '')) ?? false);
+    (latest.changedFiles?.every((f) => README_FILE.test(f.split('/').pop() ?? '')) ?? false);
   if (!looksLikeReadme) return null;
 
   const gapDays = Math.round(gapHours / 24);

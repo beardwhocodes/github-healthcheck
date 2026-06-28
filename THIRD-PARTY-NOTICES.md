@@ -36,6 +36,20 @@ redistribute, do not assume any rights over the upstream project's source — an
 if you are the upstream author and would like the attribution adjusted, please
 open an issue.
 
+## Bundled dependencies
+
+No third-party source is copied into this repository, but the deployed artifacts
+do bundle these runtime dependencies (each retains its own copyright and license):
+
+- [hono](https://github.com/honojs/hono) — MIT. The HTTP framework for the
+  Cloudflare Worker (`src/`).
+- [react](https://github.com/facebook/react) — MIT. The SPA UI runtime (`web/`).
+- [react-dom](https://github.com/facebook/react/tree/main/packages/react-dom) —
+  MIT. React's DOM/server renderer used by the SPA and the prerender step.
+
+Build- and test-only tooling (Vite, Biome, TypeScript, Wrangler, Vitest, etc.)
+is not shipped to users and is enumerated in `package.json` / `pnpm-lock.yaml`.
+
 ## "Sign in with GitHub" mark
 
 The GitHub Octocat mark in `web/src/components/Landing.tsx` is used solely for a

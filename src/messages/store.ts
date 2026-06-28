@@ -54,6 +54,12 @@ export async function createMessage(
   return id;
 }
 
+// Delete a user's support-inbox messages, for full account erasure (DELETE
+// /api/me). Returns the statement so it runs atomically in the deletion batch.
+export function deleteMessagesStatement(env: Env, login: string): D1PreparedStatement {
+  return env.DB.prepare(`DELETE FROM messages WHERE login = ?`).bind(login);
+}
+
 export async function getMessage(env: Env, id: string): Promise<MessageRecord | null> {
   const row = await env.DB.prepare(`SELECT * FROM messages WHERE id = ?`).bind(id).first<MessageRow>();
   return row ? rowToMessage(row) : null;

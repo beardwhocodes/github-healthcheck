@@ -120,7 +120,7 @@ describe('session lifecycle', () => {
     });
 
     const res = await SELF.fetch(url('/api/me'), {
-      headers: { Cookie: `rs_session=${rawId}` },
+      headers: { Cookie: `__Host-rs_session=${rawId}` },
     });
 
     // STOP condition: must be 401 — if not, expired sessions aren't rejected.
@@ -138,7 +138,7 @@ describe('session lifecycle', () => {
     });
 
     const res = await SELF.fetch(url('/api/me'), {
-      headers: { Cookie: `rs_session=${rawId}` },
+      headers: { Cookie: `__Host-rs_session=${rawId}` },
     });
 
     expect(res.status).toBe(200);
@@ -182,7 +182,7 @@ describe('OAuth state-check branches (/auth/callback)', () => {
       url('/auth/callback?state=somestate&code=somecode'),
       {
         redirect: 'manual',
-        headers: { Cookie: 'rs_oauth_state=garbage_not_a_valid_signature' },
+        headers: { Cookie: '__Host-rs_oauth_state=garbage_not_a_valid_signature' },
       },
     );
 
@@ -203,7 +203,7 @@ describe('OAuth state-check branches (/auth/callback)', () => {
         redirect: 'manual',
         // STOP condition: if this does NOT return oauth_state_mismatch, the
         // CSRF guard is broken.
-        headers: { Cookie: `rs_oauth_state=${signedCookie}` },
+        headers: { Cookie: `__Host-rs_oauth_state=${signedCookie}` },
       },
     );
 
@@ -262,7 +262,7 @@ describe('OAuth happy path', () => {
       url('/auth/callback?state=teststate&code=real-code'),
       {
         redirect: 'manual',
-        headers: { Cookie: `rs_oauth_state=${signedCookie}` },
+        headers: { Cookie: `__Host-rs_oauth_state=${signedCookie}` },
       },
     );
 

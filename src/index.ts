@@ -5,6 +5,7 @@ import { runImpersonationScan } from './alerts/cron.js';
 import { oauth } from './auth/github-oauth.js';
 import { sweepExpiredSessions } from './auth/session.js';
 import { pruneRateEvents } from './ratelimit/store.js';
+import { pruneOldScans } from './scans/store.js';
 import type { Env } from './env.js';
 import { admin } from './routes/admin.js';
 import { alerts } from './routes/alerts.js';
@@ -52,14 +53,23 @@ app.route('/email', email);
 
 // Authenticated JSON API.
 const api = new Hono<{ Bindings: Env; Variables: Vars }>();
-api.use('*', csrf());          // same-origin check on unsafe methods
-// Additional Origin check for JSON mutation requests (hono/csrf guards form
-// submissions; this gate covers application/json API calls on the same group).
+// hono/csrf() only guards form-style content types (urlencoded/multipart/
+// text-plain) — it does NOT inspect application/json. Our API is JSON, so this
+// built-in check is effectively a no-op for our requests; the explicit gate
+// below is what actually protects state-changing JSON calls.
+api.use('*', csrf());
+// Origin gate for unsafe (state-changing) JSON requests. Browsers always attach
+// an Origin header to cross-origin requests AND to same-origin requests using an
+// unsafe method, so for POST/PUT/PATCH/DELETE we fail closed: a missing Origin —
+// or one that doesn't match our own origin — is treated as untrusted. (The /auth
+// and /email flows live outside this /api group, and the SPA's own mutations are
+// same-origin, so neither is affected.)
 api.use('*', async (c, next) => {
   const safeMethods = /^(GET|HEAD|OPTIONS|TRACE)$/;
   if (!safeMethods.test(c.req.method)) {
     const origin = c.req.header('origin');
-    if (origin !== undefined && origin !== new URL(c.req.url).origin) {
+    const appOrigin = new URL(c.env.APP_URL).origin;
+    if (origin !== appOrigin && origin !== new URL(c.req.url).origin) {
       return c.json({ error: 'forbidden', message: 'Cross-origin request rejected.' }, 403);
     }
   }
@@ -85,9 +95,28 @@ export default {
   fetch: app.fetch,
   async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     const now = Date.now();
-    ctx.waitUntil(runImpersonationScan(env, now));
-    // Daily maintenance: purge expired sessions and old rate-limit events.
+    // Wrap the scan so its outcome is logged distinctly: a clean run vs. one that
+    // aborted or stopped on the subrequest budget (those leave work for next run
+    // and do not advance the per-subscriber clean-run marker).
+    ctx.waitUntil(
+      runImpersonationScan(env, now)
+        .then((r) => {
+          const clean = r.failed === 0 && !r.budgetStopped;
+          const summary = `scanned=${r.scanned} deactivated=${r.deactivated} failed=${r.failed} budgetStopped=${r.budgetStopped}`;
+          if (clean) {
+            console.log(`[cron] impersonation scan complete: ${summary}`);
+          } else {
+            console.warn(`[cron] impersonation scan incomplete: ${summary}`);
+          }
+        })
+        .catch((err) => {
+          console.error(`[cron] impersonation scan crashed: ${String(err)}`);
+        }),
+    );
+    // Daily maintenance: purge expired sessions, old rate-limit events, and
+    // scan-log rows past the 60-day retention window (bounds scans table growth).
     ctx.waitUntil(sweepExpiredSessions(env, now));
     ctx.waitUntil(pruneRateEvents(env, now - 24 * 60 * 60 * 1000));
+    ctx.waitUntil(pruneOldScans(env, now - 60 * 24 * 60 * 60 * 1000));
   },
 };

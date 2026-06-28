@@ -82,8 +82,10 @@ async function seedSession(login: string): Promise<string> {
   return id;
 }
 
+// APP_URL is https in the test env, so the session cookie is set/read under the
+// __Host- prefix (see session.ts cookiePrefix).
 function as(cookie: string): RequestInit {
-  return { headers: { Cookie: `rs_session=${cookie}` } };
+  return { headers: { Cookie: `__Host-rs_session=${cookie}` } };
 }
 
 function url(path: string): string {
@@ -146,7 +148,12 @@ describe('suspension enforcement', () => {
     await seedUser({ login: 'bob', role: 'user', suspendedAt: Date.now(), reason: 'Excess scans' });
     const cookie = await seedSession('bob');
 
-    const report = await SELF.fetch(url('/api/report'), as(cookie));
+    // /api/report is POST (state-changing: it writes a scan log); send Origin
+    // so the CSRF gate passes and the request reaches the suspension check.
+    const report = await SELF.fetch(url('/api/report'), {
+      method: 'POST',
+      headers: { Cookie: `__Host-rs_session=${cookie}`, Origin: 'https://test.local' },
+    });
     expect(report.status).toBe(403);
 
     const me = await SELF.fetch(url('/api/me'), as(cookie));
@@ -161,7 +168,11 @@ describe('suspension enforcement', () => {
     const cookie = await seedSession('bob');
     const res = await SELF.fetch(url('/api/alerts'), {
       method: 'POST',
-      headers: { Cookie: `rs_session=${cookie}`, 'Content-Type': 'application/json' },
+      headers: {
+        Cookie: `__Host-rs_session=${cookie}`,
+        'Content-Type': 'application/json',
+        Origin: 'https://test.local',
+      },
       body: JSON.stringify({ email: 'x@example.com' }),
     });
     expect(res.status).toBe(403);
@@ -177,7 +188,13 @@ describe('admin actions honour the policy guards (real getUser + real policy)', 
   function post(path: string, cookie: string, body: unknown): Promise<Response> {
     return SELF.fetch(url(path), {
       method: 'POST',
-      headers: { Cookie: `rs_session=${cookie}`, 'Content-Type': 'application/json' },
+      headers: {
+        Cookie: `__Host-rs_session=${cookie}`,
+        'Content-Type': 'application/json',
+        // Same-origin Origin header: browsers attach it to unsafe-method requests,
+        // and the API's CSRF gate now fails closed when it is absent.
+        Origin: 'https://test.local',
+      },
       body: JSON.stringify(body),
     });
   }
@@ -203,7 +220,10 @@ describe('admin actions honour the policy guards (real getUser + real policy)', 
     const suspend = await post('/api/admin/users/bob/suspend', cookie, { reason: 'Abuse' });
     expect(suspend.status).toBe(200);
 
-    const bobReport = await SELF.fetch(url('/api/report'), as(bobCookie));
+    const bobReport = await SELF.fetch(url('/api/report'), {
+      method: 'POST',
+      headers: { Cookie: `__Host-rs_session=${bobCookie}`, Origin: 'https://test.local' },
+    });
     expect(bobReport.status).toBe(403);
   });
 });

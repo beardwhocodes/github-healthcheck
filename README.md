@@ -30,8 +30,9 @@ year. GitHub Healthcheck encodes the exact tells the researcher used to find the
 
 ## Detection methodology
 
-Heuristics are adapted from the disclosure and the author's open-source CLI,
-[`git-malware-finder`](https://github.com/orchidfiles/git-malware-finder). The engine
+Heuristics are adapted from the disclosure and the author's public, source-available CLI,
+[`git-malware-finder`](https://github.com/orchidfiles/git-malware-finder) (no license file
+upstream — see `THIRD-PARTY-NOTICES.md`). The engine
 (`src/engine/`) is pure and fully unit-tested. Per repository it checks:
 
 | Signal | Why it matters |
@@ -86,10 +87,10 @@ React + Vite SPA  ──>  Cloudflare Worker (Hono)  ──>  GitHub REST/GraphQ
 ## Local development
 
 ```bash
-npm install
+pnpm install
 cp .dev.vars.example .dev.vars     # then fill in the values below
-npm run db:init                    # create local D1 tables
-npm run dev                        # SPA on :5173, Worker API on :8787 (proxied)
+pnpm db:init                       # create local D1 tables
+pnpm dev                           # SPA on :5173, Worker API on :8787 (proxied)
 ```
 
 Open <http://localhost:5173>.
@@ -111,18 +112,20 @@ Email is sent via the Cloudflare Email Sending `EMAIL` binding — no API key ne
 
 | Script | Does |
 | --- | --- |
-| `npm run dev` | Run SPA + Worker together |
-| `npm test` | Run the detection-engine unit tests |
-| `npm run typecheck` | Typecheck Worker + SPA |
-| `npm run build:web` | Build the SPA into `web/dist` |
-| `npm run db:init` | Apply the D1 schema locally |
+| `pnpm dev` | Run SPA + Worker together |
+| `pnpm test` | Run the detection-engine unit tests |
+| `pnpm test:integration` | Run the Workers-pool + D1 integration tests |
+| `pnpm lint` | Biome lint/format check |
+| `pnpm typecheck` | Typecheck Worker + SPA |
+| `pnpm build:web` | Build the SPA into `web/dist` |
+| `pnpm db:init` | Apply the D1 schema locally |
 
 ---
 
 ## Deployment (CI only)
 
 **Production deploys run in GitHub Actions on every push to `master`** — never from a developer's
-machine (`npm run deploy` is intentionally a no-op). See `.github/workflows/deploy.yml`: it
+machine (`pnpm run deploy` is intentionally a no-op). See `.github/workflows/deploy.yml`: it
 typechecks, tests, builds the SPA, dry-run-bundles the Worker, applies the (idempotent) D1 schema,
 and deploys.
 
@@ -135,7 +138,7 @@ Cloudflare account and the `CLOUDFLARE_API_TOKEN` has DNS-edit permission for it
 
 1. **Create the Cloudflare resources** (once, by an admin):
    ```bash
-   npx wrangler d1 create github-healthcheck-db   # paste the id into wrangler.jsonc → d1_databases[0].database_id
+   pnpm exec wrangler d1 create github-healthcheck-db   # paste the id into wrangler.jsonc → d1_databases[0].database_id
    ```
    Ensure `beardwho.codes` is added as a zone in the Cloudflare account (the custom domain lives under it).
 2. **Create the production GitHub OAuth App** with:
@@ -145,8 +148,8 @@ Cloudflare account and the `CLOUDFLARE_API_TOKEN` has DNS-edit permission for it
    are already set there for this domain).
 3. **Set Worker secrets** (persist across deploys — set once):
    ```bash
-   npx wrangler secret put GITHUB_CLIENT_SECRET
-   npx wrangler secret put SESSION_SECRET
+   pnpm exec wrangler secret put GITHUB_CLIENT_SECRET
+   pnpm exec wrangler secret put SESSION_SECRET
    ```
 4. **Add repo secrets** to the private GitHub repo (Settings → Secrets and variables → Actions):
    `CLOUDFLARE_API_TOKEN` (Workers + D1 edit), `CLOUDFLARE_ACCOUNT_ID`.
@@ -157,11 +160,32 @@ Then push to `master` and the pipeline ships it. Pushes before step 5 still run 
 
 ---
 
+## Fork / self-host
+
+This repo is wired to the maintainer's domain and accounts. To run your own instance, replace these
+example/maintainer values with yours:
+
+| What | Where | Current example value |
+| --- | --- | --- |
+| App URL | `wrangler.jsonc` → `vars.APP_URL` | `https://github-healthcheck.beardwho.codes` |
+| OAuth client id | `wrangler.jsonc` → `vars.GITHUB_CLIENT_ID` (prod) and `.dev.vars` (local) | `Ov23liY3KuEfojvgelK9` |
+| Custom domain | `wrangler.jsonc` → `routes[0].pattern` | `github-healthcheck.beardwho.codes` |
+| Email sender domain | `wrangler.jsonc` → `send_email[0].allowed_sender_addresses` | `noreply@github-healthcheck.beardwho.codes` |
+| Alert from-address | `wrangler.jsonc` → `vars.ALERT_FROM_EMAIL` | `noreply@github-healthcheck.beardwho.codes` |
+| SPA sender (inbox deep-links) | `web/src/mailProvider.ts` `SENDER` constant, or build-time `VITE_ALERT_FROM_EMAIL` | `noreply@github-healthcheck.beardwho.codes` |
+| Bootstrap admin login(s) | `ADMIN_LOGINS` env var (comma-separated) — `wrangler.jsonc` `vars` in prod, `.dev.vars` locally | `copyjosh` |
+| Support / donate URL | `web/src/components/SupportButton.tsx` → `SUPPORT_URL` | `https://paypal.me/copyjosh` |
+
+Keep the `wrangler.jsonc` `ALERT_FROM_EMAIL` and the SPA `SENDER` in agreement so the "open your
+inbox" deep-link filters on the address that actually sent the mail.
+
+---
+
 ## Roadmap / notes
 
-- Scans are capped (default 30 repos per account, top-15 most-starred for clone search) to stay within
-  GitHub's rate budget; caps are configurable via query params and `src/engine/constants.ts`.
-- Worker integration tests (`@cloudflare/vitest-pool-workers`) and richer clone-confidence tuning are
-  natural next steps.
+- Scans are capped (default 30 repos per account, top-10 most-starred — max 15 — for clone search) to
+  stay within GitHub's rate budget; caps are configurable via query params and `src/engine/constants.ts`.
+- Worker integration tests (`@cloudflare/vitest-pool-workers`) run in CI on every push (`pnpm
+  test:integration`); richer clone-confidence tuning is a natural next step.
 - Heuristics are data-driven (`src/engine/constants.ts`) — extend the vocabulary as the campaign
   evolves without touching rule logic.

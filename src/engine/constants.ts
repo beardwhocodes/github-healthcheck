@@ -168,7 +168,10 @@ export const BOT_AUTHOR_PATTERNS: RegExp[] = [
 // link to an archive is a strong campaign signal.
 export const BADGE_HOSTS = ['img.shields.io', 'shields.io', 'badgen.net'] as const;
 
-// Thresholds (mirrors git-malware-finder/src/config.ts where applicable).
+// Thresholds. These data values (like the IOC lists above) are derived from the
+// public campaign disclosure and write-ups (orchidfiles.com, hexastrike.com,
+// and the documented behavior of git-malware-finder) — no source code is copied
+// from any of them. See THIRD-PARTY-NOTICES.
 export const THRESHOLDS = {
   // A repo younger than this with download lures is extra suspicious (days).
   newAccountDays: 30,
