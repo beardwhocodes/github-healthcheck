@@ -5,5 +5,7 @@
   X-Frame-Options: DENY
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
-  Strict-Transport-Security: max-age=63072000; includeSubDomains
+  # 6 months — matches the Cloudflare zone HSTS setting (which overrides this at
+  # the edge) and src/index.ts. Bump all three together to raise it / preload.
+  Strict-Transport-Security: max-age=15552000; includeSubDomains
   Content-Security-Policy: default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' https://avatars.githubusercontent.com https://*.githubusercontent.com data:; connect-src 'self'; font-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'
