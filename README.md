@@ -5,7 +5,7 @@
 <p><strong>Sign in with GitHub and get a security report on your account, your repositories, and any clones of your work.</strong></p>
 
 <p>
-  <a href="https://github.com/CopyJosh/github-healthcheck/actions/workflows/deploy.yml"><img src="https://github.com/CopyJosh/github-healthcheck/actions/workflows/deploy.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/beardwhocodes/github-healthcheck/actions/workflows/deploy.yml"><img src="https://github.com/beardwhocodes/github-healthcheck/actions/workflows/deploy.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/Cloudflare-Workers-F38020?style=flat-square&logo=cloudflare&logoColor=white" alt="Cloudflare Workers">
   <img src="https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript">

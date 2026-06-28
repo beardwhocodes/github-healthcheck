@@ -62,7 +62,7 @@ re-verified green on the integrated branch: typecheck, lint, 219 unit + 38
 integration tests, build (prerender intact), wrangler dry-run.
 
 **Merged + shipped 2026-06-24:** opened as PR
-[#1](https://github.com/CopyJosh/github-healthcheck/pull/1), CI `build-test`
+[#1](https://github.com/beardwhocodes/github-healthcheck/pull/1), CI `build-test`
 passed, merged into `master` as commit `2fa7ae8`. The push-to-master Deploy
 workflow then ran green — applied D1 migration `0003_admin_indexes.sql` and
 deployed the Worker to Cloudflare. Integration branch + all `advisor/*` branches
