@@ -208,6 +208,13 @@ function escapeLike(value: string): string {
 // off-by-one when a filter is added) is unit-testable without a DB. Placeholder
 // order MUST be: the velocity-window `?` (subquery), then any search `?`s
 // (WHERE), then the LIMIT `?`. The binds array mirrors exactly that order.
+//
+// Velocity (a user's scans in the trailing 24h) is read from rate_events, NOT a
+// per-scan log: the rate limiter records one row per accepted scan under bucket
+// 'scan-day:<login>' (the 'scan-day:' prefix is 9 chars, so substr(.,10) is the
+// login). This keeps the abuse signal without retaining an identity-linked scan
+// history. Admins are exempt from rate limiting, so they have no such rows and
+// always read 0 here — acceptable, since velocity only flags non-admin abuse.
 export function buildUserListQuery(filter: UserListFilter): { sql: string; binds: unknown[] } {
   const where: string[] = [];
   const binds: unknown[] = [filter.since24h];
@@ -227,11 +234,14 @@ export function buildUserListQuery(filter: UserListFilter): { sql: string; binds
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
   binds.push(Math.max(1, Math.min(filter.limit, 500)));
 
-  const sql = `SELECT u.*, COALESCE(s.recent, 0) AS recent_scans
+  const sql = `SELECT u.*, COALESCE(rv.recent, 0) AS recent_scans
        FROM users u
        LEFT JOIN (
-         SELECT login, COUNT(*) AS recent FROM scans WHERE created_at >= ? GROUP BY login
-       ) s ON s.login = u.login
+         SELECT substr(bucket, 10) AS login, COUNT(*) AS recent
+           FROM rate_events
+          WHERE bucket LIKE 'scan-day:%' AND created_at >= ?
+          GROUP BY bucket
+       ) rv ON rv.login = u.login
        ${whereSql}
        ORDER BY u.last_seen_at DESC
        LIMIT ?`;

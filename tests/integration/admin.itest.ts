@@ -254,105 +254,81 @@ describe('upsertUserOnLogin preserves admin state (real SQLite ON CONFLICT)', ()
   });
 });
 
-describe('scan log audit endpoint', () => {
-  async function seedScan(args: {
-    login: string;
-    kind: string;
-    target: string | null;
-    topScore: number | null;
-    createdAt: number;
-  }): Promise<void> {
-    await DB.prepare(
-      `INSERT INTO scans (id, login, kind, target, top_score, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-    )
-      .bind(randomToken(8), args.login, args.kind, args.target, args.topScore, args.createdAt)
-      .run();
+describe('user-list velocity is derived from rate_events (real D1, no scans table)', () => {
+  // The rate limiter records one row per accepted scan under bucket
+  // 'scan-day:<login>'. The user-list velocity counts those in the trailing 24h —
+  // there is no identity-linked scan log to read from anymore.
+  async function seedScanEvents(login: string, createdAt: number, n = 1): Promise<void> {
+    await DB.batch(
+      Array.from({ length: n }, () =>
+        DB.prepare(`INSERT INTO rate_events (bucket, created_at) VALUES (?, ?)`).bind(
+          `scan-day:${login}`,
+          createdAt,
+        ),
+      ),
+    );
   }
 
-  it('returns 404 to a non-admin and the feed to an admin', async () => {
-    await seedUser({ login: 'mallory', role: 'user' });
+  it('counts scan-day events per user and bands them, ignoring events outside 24h', async () => {
     await seedUser({ login: 'copyjosh', role: 'admin' });
-    await seedScan({ login: 'mallory', kind: 'repo', target: 'evil/clone', topScore: 88, createdAt: Date.now() });
+    await seedUser({ login: 'busy', role: 'user' });
+    await seedUser({ login: 'quiet', role: 'user' });
 
-    const denied = await SELF.fetch(url('/api/admin/scans'), as(await seedSession('mallory')));
-    expect(denied.status).toBe(404);
-
-    const ok = await SELF.fetch(url('/api/admin/scans'), as(await seedSession('copyjosh')));
-    expect(ok.status).toBe(200);
-    const body = (await ok.json()) as { scans: { login: string; kind: string; target: string | null }[] };
-    expect(body.scans.length).toBe(1);
-    expect(body.scans[0]).toMatchObject({ login: 'mallory', kind: 'repo', target: 'evil/clone' });
-  });
-
-  it('filters by kind', async () => {
-    await seedUser({ login: 'copyjosh', role: 'admin' });
     const now = Date.now();
-    await seedScan({ login: 'a', kind: 'repo', target: 'x/y', topScore: 10, createdAt: now });
-    await seedScan({ login: 'a', kind: 'self', target: null, topScore: 5, createdAt: now });
+    await seedScanEvents('busy', now - 1000, 130); // >= SCAN_VELOCITY_ABUSE (120)
+    await seedScanEvents('quiet', now - 1000, 1);
+    await seedScanEvents('quiet', now - 48 * 60 * 60 * 1000, 5); // stale → excluded
 
-    const res = await SELF.fetch(url('/api/admin/scans?kind=self'), as(await seedSession('copyjosh')));
-    const body = (await res.json()) as { scans: { kind: string }[] };
-    expect(body.scans.every((s) => s.kind === 'self')).toBe(true);
-    expect(body.scans.length).toBe(1);
-  });
-
-  it('aggregates most-scanned distinct targets (excluding null-target self/clone scans)', async () => {
-    await seedUser({ login: 'copyjosh', role: 'admin' });
-    const now = Date.now();
-    // evil/clone scanned by two different users (3 total); good/repo once; a self-audit (no target).
-    await seedScan({ login: 'a', kind: 'repo', target: 'evil/clone', topScore: 90, createdAt: now - 200 });
-    await seedScan({ login: 'a', kind: 'repo', target: 'evil/clone', topScore: 90, createdAt: now - 100 });
-    await seedScan({ login: 'b', kind: 'repo', target: 'evil/clone', topScore: 90, createdAt: now });
-    await seedScan({ login: 'a', kind: 'repo', target: 'good/repo', topScore: 5, createdAt: now - 50 });
-    await seedScan({ login: 'a', kind: 'self', target: null, topScore: 0, createdAt: now });
-
-    const res = await SELF.fetch(url('/api/admin/scans/top'), as(await seedSession('copyjosh')));
+    const res = await SELF.fetch(url('/api/admin/users'), as(await seedSession('copyjosh')));
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
-      targets: { target: string; kind: string; scans: number; scanners: number }[];
+      users: { login: string; recentScans: number; velocity: string }[];
     };
-    // Two distinct targets; the null-target self-audit is excluded.
-    expect(body.targets.length).toBe(2);
-    // Busiest first: evil/clone (3 scans, 2 distinct users) ahead of good/repo.
-    expect(body.targets[0]).toMatchObject({ target: 'evil/clone', kind: 'repo', scans: 3, scanners: 2 });
-    expect(body.targets[1]).toMatchObject({ target: 'good/repo', scans: 1, scanners: 1 });
-  });
-
-  it('returns 404 to a non-admin for the most-scanned view', async () => {
-    await seedUser({ login: 'mallory', role: 'user' });
-    const res = await SELF.fetch(url('/api/admin/scans/top'), as(await seedSession('mallory')));
-    expect(res.status).toBe(404);
+    const byLogin = Object.fromEntries(body.users.map((u) => [u.login, u]));
+    expect(byLogin.busy).toMatchObject({ recentScans: 130, velocity: 'abuse' });
+    expect(byLogin.quiet).toMatchObject({ recentScans: 1, velocity: 'normal' });
   });
 });
 
-describe('scansPerDay buckets by the viewer timezone (real SQLite date shift)', () => {
-  async function seedScanAt(createdAt: number): Promise<void> {
-    await DB.prepare(
-      `INSERT INTO scans (id, login, kind, target, top_score, created_at) VALUES (?, 'u', 'self', NULL, NULL, ?)`,
-    )
-      .bind(randomToken(8), createdAt)
+describe('user-detail endpoint returns just the durable record (no scan history)', () => {
+  it('serves { user } to an admin and no recentScans field', async () => {
+    await seedUser({ login: 'copyjosh', role: 'admin' });
+    await seedUser({ login: 'bob', role: 'user' });
+
+    const res = await SELF.fetch(url('/api/admin/users/bob'), as(await seedSession('copyjosh')));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect((body.user as { login: string }).login).toBe('bob');
+    expect('recentScans' in body).toBe(false);
+  });
+});
+
+describe('scansPerDay aggregates by UTC day (real SQLite over scan_daily)', () => {
+  async function seedDaily(day: string, kind: string, count: number): Promise<void> {
+    await DB.prepare(`INSERT INTO scan_daily (day, kind, count) VALUES (?, ?, ?)`)
+      .bind(day, kind, count)
       .run();
   }
 
-  it('shifts a 02:00 UTC scan back to the previous day for a US-Eastern viewer', async () => {
-    const at = Date.parse('2026-06-20T02:00:00Z');
+  it('sums per-kind counts into one row per UTC day, oldest first', async () => {
     const since = Date.parse('2026-06-01T00:00:00Z');
-    await seedScanAt(at);
+    await seedDaily('2026-06-19', 'self', 2);
+    await seedDaily('2026-06-19', 'repo', 3);
+    await seedDaily('2026-06-20', 'account', 1);
 
-    const utc = await scansPerDay(appEnv, since, 0);
-    expect(utc).toEqual([{ day: '2026-06-20', count: 1 }]);
-
-    const eastern = await scansPerDay(appEnv, since, 300); // UTC-5 → 21:00 on the 19th
-    expect(eastern).toEqual([{ day: '2026-06-19', count: 1 }]);
+    const rows = await scansPerDay(appEnv, since);
+    expect(rows).toEqual([
+      { day: '2026-06-19', count: 5 },
+      { day: '2026-06-20', count: 1 },
+    ]);
   });
 
-  it('shifts a 23:00 UTC scan forward a day for an eastern (Cairo) viewer', async () => {
-    const at = Date.parse('2026-06-19T23:00:00Z');
-    const since = Date.parse('2026-06-01T00:00:00Z');
-    await seedScanAt(at);
+  it('excludes days before the UTC day containing `since`', async () => {
+    await seedDaily('2026-05-30', 'self', 9);
+    await seedDaily('2026-06-02', 'self', 1);
 
-    const cairo = await scansPerDay(appEnv, since, -120); // UTC+2 → 01:00 on the 20th
-    expect(cairo).toEqual([{ day: '2026-06-20', count: 1 }]);
+    const rows = await scansPerDay(appEnv, Date.parse('2026-06-01T00:00:00Z'));
+    expect(rows).toEqual([{ day: '2026-06-02', count: 1 }]);
   });
 });
 

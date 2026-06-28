@@ -58,31 +58,10 @@ export interface AdminUserBase {
 }
 
 // A row in the admin Users LIST, augmented by the server with the trailing-24h
-// scan count and its velocity band. These two fields are list-only.
+// scan count (derived from rate_events) and its velocity band. List-only fields.
 export interface AdminUser extends AdminUserBase {
   recentScans: number;
   velocity: VelocityBand;
-}
-
-export interface ScanLogItem {
-  kind: string;
-  target: string | null;
-  topScore: number | null;
-  createdAt: number;
-}
-
-// A row in the global scan-audit feed (every user's scans).
-export interface ScanAuditItem extends ScanLogItem {
-  login: string;
-}
-
-// A distinct scanned target, aggregated across all users.
-export interface TopScannedItem {
-  target: string;
-  kind: string;
-  scans: number;
-  scanners: number;
-  lastScanned: number;
 }
 
 export interface AdminReport {
@@ -228,7 +207,7 @@ export const api = {
   unsubscribe: () => send<AlertsStatus>('/api/alerts', 'DELETE'),
   logout: () => send<{ ok: boolean }>('/auth/logout', 'POST'),
   // Permanently erase the account: revokes the GitHub OAuth grant, deletes all
-  // stored rows (sessions, alerts, scans, messages, reports), destroys the session.
+  // stored rows (sessions, alerts, messages, reports), destroys the session.
   deleteAccount: () => send<{ ok: boolean }>('/api/me', 'DELETE'),
 
   // Support / reporting (any signed-in user).
@@ -243,11 +222,6 @@ export const api = {
     // timezone (getTimezoneOffset(): minutes to add to local to reach UTC).
     stats: (tzOffsetMinutes = new Date().getTimezoneOffset()) =>
       get<AdminStats>(`/api/admin/stats?tzOffset=${tzOffsetMinutes}`),
-    scans: (kind?: string) =>
-      get<{ scans: ScanAuditItem[] }>(
-        `/api/admin/scans${kind && kind !== 'all' ? `?kind=${encodeURIComponent(kind)}` : ''}`,
-      ),
-    topScans: () => get<{ targets: TopScannedItem[] }>('/api/admin/scans/top'),
     users: (params?: { query?: string; status?: string }) => {
       const qs = new URLSearchParams();
       if (params?.query) qs.set('query', params.query);
@@ -256,9 +230,7 @@ export const api = {
       return get<{ users: AdminUser[] }>(`/api/admin/users${suffix}`);
     },
     user: (login: string) =>
-      get<{ user: AdminUserBase; recentScans: ScanLogItem[] }>(
-        `/api/admin/users/${encodeURIComponent(login)}`,
-      ),
+      get<{ user: AdminUserBase }>(`/api/admin/users/${encodeURIComponent(login)}`),
     // These mutations return the durable user record (AdminUserBase) — they do
     // NOT carry the list-only recentScans/velocity fields. The caller merges the
     // returned base onto the existing list row rather than replacing it.

@@ -47,9 +47,11 @@ async function countWhere(env: Env, sql: string, ...binds: unknown[]): Promise<n
 }
 
 // One shot to build the whole overview. Runs the cheap aggregates concurrently.
-// `offsetMinutes` is the viewer's getTimezoneOffset(), so calendar-day metrics
-// (the per-day chart and "new today") align to the admin's local midnight rather
-// than UTC. Rolling windows (24h/7d/30d) are timezone-independent and unchanged.
+// `offsetMinutes` is the viewer's getTimezoneOffset(), used only for the "new
+// today" user metric (the users table still carries per-row timestamps). The
+// scan aggregates are stored per UTC day with no per-event timestamp, so the
+// per-day chart is UTC-based regardless of the viewer's timezone. Rolling
+// windows (24h/7d/30d) over scans now snap to whole UTC days.
 export async function getAdminStats(env: Env, now: number, offsetMinutes = 0): Promise<AdminStats> {
   const since24h = now - DAY;
   const since7d = now - 7 * DAY;
@@ -84,7 +86,7 @@ export async function getAdminStats(env: Env, now: number, offsetMinutes = 0): P
     countScansSince(env, since24h),
     countScansSince(env, since7d),
     countScansByKind(env),
-    scansPerDay(env, now - CHART_DAYS * DAY, offsetMinutes),
+    scansPerDay(env, now - CHART_DAYS * DAY),
     countMessagesByStatus(env),
     countReportsByStatus(env),
     topReportedRepos(env, 8),
@@ -100,7 +102,8 @@ export async function getAdminStats(env: Env, now: number, offsetMinutes = 0): P
       last24h: scans24h,
       last7d: scans7d,
       byKind,
-      perDay: buildDayBuckets(perDayRaw, now, CHART_DAYS, offsetMinutes),
+      // UTC day buckets to match scan_daily's keying (no viewer-offset shift).
+      perDay: buildDayBuckets(perDayRaw, now, CHART_DAYS),
     },
     messages: { ...msgCounts, total: msgCounts.open + msgCounts.read + msgCounts.resolved },
     reports: { total: reportsTotal, byStatus: reportCounts, topReported },
