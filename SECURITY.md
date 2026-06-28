@@ -8,7 +8,7 @@ discussion for anything security-sensitive.
 - **Preferred:** open a private report via GitHub Security Advisories
   ([Security tab → "Report a vulnerability"](../../security/advisories/new)).
   This keeps the discussion private until a fix is available.
-- **Email (fallback):** security@example.com  <!-- MAINTAINER: set a real address before launch -->
+- **Email (fallback):** hello@beardwho.codes
 
 Please include enough to reproduce: affected version/commit, impact, and a
 proof-of-concept or steps where possible.

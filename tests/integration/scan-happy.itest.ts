@@ -2,8 +2,8 @@
 // error tiers (401/403/429); this proves a 200 actually flows through the real
 // Worker (origin gate + requireAuth + requireNotSuspended + rate limit) and
 // returns the documented response SHAPE, with the GitHub API mocked. /api/scan
-// is exercised as a POST (it was converted from GET in the CSRF hardening pass);
-// /api/report stays a GET.
+// and /api/report are both POST (converted from GET in the CSRF hardening pass,
+// since each writes a scan-log row), so both require a same-origin Origin header.
 import { env, fetchMock, SELF } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -123,7 +123,7 @@ describe('POST /api/scan (account, happy path)', () => {
   });
 });
 
-describe('GET /api/report (self-audit, happy path)', () => {
+describe('POST /api/report (self-audit, happy path)', () => {
   it('returns 200 with the report rollup shape', async () => {
     const rawId = await seedSession('selfscanner');
 
@@ -137,9 +137,10 @@ describe('GET /api/report (self-audit, happy path)', () => {
     );
     gh.intercept({ path: /^\/user\/repos/, method: 'GET' }).reply(200, '[]', JSON_HEADERS);
 
-    // GET is a safe method, so the origin gate does not apply.
+    // POST now (writes a scan log), so the origin gate applies — send Origin.
     const res = await SELF.fetch(url('/api/report'), {
-      headers: { Cookie: `__Host-rs_session=${rawId}` },
+      method: 'POST',
+      headers: { Cookie: `__Host-rs_session=${rawId}`, Origin: 'https://test.local' },
     });
 
     expect(res.status).toBe(200);

@@ -148,7 +148,12 @@ describe('suspension enforcement', () => {
     await seedUser({ login: 'bob', role: 'user', suspendedAt: Date.now(), reason: 'Excess scans' });
     const cookie = await seedSession('bob');
 
-    const report = await SELF.fetch(url('/api/report'), as(cookie));
+    // /api/report is POST (state-changing: it writes a scan log); send Origin
+    // so the CSRF gate passes and the request reaches the suspension check.
+    const report = await SELF.fetch(url('/api/report'), {
+      method: 'POST',
+      headers: { Cookie: `__Host-rs_session=${cookie}`, Origin: 'https://test.local' },
+    });
     expect(report.status).toBe(403);
 
     const me = await SELF.fetch(url('/api/me'), as(cookie));
@@ -215,7 +220,10 @@ describe('admin actions honour the policy guards (real getUser + real policy)', 
     const suspend = await post('/api/admin/users/bob/suspend', cookie, { reason: 'Abuse' });
     expect(suspend.status).toBe(200);
 
-    const bobReport = await SELF.fetch(url('/api/report'), as(bobCookie));
+    const bobReport = await SELF.fetch(url('/api/report'), {
+      method: 'POST',
+      headers: { Cookie: `__Host-rs_session=${bobCookie}`, Origin: 'https://test.local' },
+    });
     expect(bobReport.status).toBe(403);
   });
 });

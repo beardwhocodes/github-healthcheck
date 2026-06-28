@@ -9,7 +9,6 @@ import {
   getWatchedRepos,
   listActiveSubscriptions,
   recordClones,
-  rotateUnsubscribeToken,
   setLastRun,
   setLastScanned,
   type Subscription,
@@ -158,9 +157,10 @@ async function scanSubscriber(
     // Persist the dedupe baseline BEFORE sending the email. Any DB failure thus
     // happens here, before an email goes out, so the next run simply retries; and
     // there is no DB write AFTER the send that could throw and re-trigger a
-    // duplicate alert. The send is the final, side-effect-only step.
+    // duplicate alert. The send is the final, side-effect-only step. (The
+    // unsubscribe link is a stateless HMAC token derived inside the email
+    // builder, so there is no token to mint or persist here.)
     try {
-      const unsubscribeToken = await rotateUnsubscribeToken(env, sub.login);
       await recordClones(
         env,
         sub.login,
@@ -177,7 +177,6 @@ async function scanSubscriber(
         to: sub.email,
         login: sub.login,
         matches: fresh,
-        unsubscribeToken,
       });
       if (!sent) {
         console.log(`[cron] alert email failed for ${sub.login} (${fresh.length} new clone(s))`);

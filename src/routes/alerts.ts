@@ -53,13 +53,11 @@ alerts.post('/alerts', requireNotSuspended, rateLimit(ALERT_EMAIL), async (c) =>
   try {
     const tokenEnc = await encrypt(session.token, c.env.SESSION_SECRET);
     const verifyToken = randomToken(32);
-    const unsubscribeToken = randomToken(32);
     await upsertSubscription(c.env, {
       login: session.login,
       email,
       tokenEnc,
       verifyToken,
-      unsubscribeToken,
       now,
     });
 
@@ -95,7 +93,6 @@ alerts.post('/alerts', requireNotSuspended, rateLimit(ALERT_EMAIL), async (c) =>
       to: email,
       login: session.login,
       verifyToken,
-      unsubscribeToken,
     });
 
     return c.json({ subscribed: false, pending: true, email, lastRunAt: null, verificationSent: sent });
