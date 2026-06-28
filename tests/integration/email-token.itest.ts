@@ -1,20 +1,19 @@
 // Integration tests for the email capability-token flow (M3 hardening): verify
 // tokens succeed, expire, and reject garbage; unsubscribe ERASES the stored
 // encrypted GitHub token (token_enc) and the user's watched/known-clone rows.
-// Tokens are stored only as SHA-256 hashes, so these exercise the real store +
-// real miniflare D1 — a pure unit test can't prove the hash round-trip or the
-// at-rest token erasure. Expiry is driven by passing an explicit `now` (never the
-// wall clock) so the test is deterministic.
+// The verify token is stored only as a SHA-256 hash; the unsubscribe token is a
+// stateless HMAC (never stored) — so these exercise the real store + real
+// miniflare D1, which a pure unit test can't. Expiry is driven by passing an
+// explicit `now` (never the wall clock) so the test is deterministic.
 import { env, SELF } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { Env } from '../../src/env.js';
+import { getSubscription, upsertSubscription, verifyByToken } from '../../src/alerts/store.js';
 import {
-  deactivateByUnsubscribeToken,
-  getSubscription,
-  upsertSubscription,
-  verifyByToken,
-} from '../../src/alerts/store.js';
+  makeUnsubscribeToken,
+  readUnsubscribeToken,
+} from '../../src/alerts/unsubscribe-token.js';
 
 const appEnv = env as unknown as Env;
 const DB = (env as unknown as { DB: D1Database }).DB;
@@ -41,12 +40,11 @@ async function applyMigrations(): Promise<void> {
 const NOW = 1_700_000_000_000;
 const VERIFY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-// Create a fresh (unverified) subscription with known RAW tokens. The store
-// hashes them at rest; the raw values are what an email link would carry.
+// Create a fresh (unverified) subscription with a known RAW verify token. The
+// store hashes it at rest; the raw value is what an email link would carry.
 async function seedSub(args: {
   login: string;
   verifyToken: string;
-  unsubscribeToken: string;
   now?: number;
 }): Promise<void> {
   await upsertSubscription(appEnv, {
@@ -54,7 +52,6 @@ async function seedSub(args: {
     email: `${args.login}@example.com`,
     tokenEnc: 'enc-blob-not-empty', // stand-in for an AES-GCM token blob
     verifyToken: args.verifyToken,
-    unsubscribeToken: args.unsubscribeToken,
     now: args.now ?? NOW,
   });
 }
@@ -69,7 +66,7 @@ beforeEach(async () => {
 
 describe('email verify token', () => {
   it('confirms a valid, unexpired token and clears the token at rest', async () => {
-    await seedSub({ login: 'vuser', verifyToken: 'rawverify', unsubscribeToken: 'rawunsub' });
+    await seedSub({ login: 'vuser', verifyToken: 'rawverify' });
 
     const sub = await verifyByToken(appEnv, 'rawverify', NOW + 1_000);
     expect(sub).not.toBeNull();
@@ -83,7 +80,7 @@ describe('email verify token', () => {
   });
 
   it('rejects an expired token without verifying (deterministic via explicit now)', async () => {
-    await seedSub({ login: 'euser', verifyToken: 'rawverify', unsubscribeToken: 'rawunsub' });
+    await seedSub({ login: 'euser', verifyToken: 'rawverify' });
 
     // One millisecond past the 7-day TTL set at seed time.
     const sub = await verifyByToken(appEnv, 'rawverify', NOW + VERIFY_TTL_MS + 1);
@@ -95,7 +92,7 @@ describe('email verify token', () => {
   });
 
   it('rejects an unknown/garbage token', async () => {
-    await seedSub({ login: 'guser', verifyToken: 'rawverify', unsubscribeToken: 'rawunsub' });
+    await seedSub({ login: 'guser', verifyToken: 'rawverify' });
 
     expect(await verifyByToken(appEnv, 'not-the-token', NOW)).toBeNull();
     expect(await verifyByToken(appEnv, '', NOW)).toBeNull();
@@ -104,12 +101,7 @@ describe('email verify token', () => {
   it('drives a successful verify end-to-end through GET /email/verify', async () => {
     // The route reads Date.now() for the expiry check, so seed the 7-day TTL
     // relative to the real clock (the store-level tests above pin `now` instead).
-    await seedSub({
-      login: 'wuser',
-      verifyToken: 'routeverify',
-      unsubscribeToken: 'routeunsub',
-      now: Date.now(),
-    });
+    await seedSub({ login: 'wuser', verifyToken: 'routeverify', now: Date.now() });
 
     const res = await SELF.fetch(url('/email/verify?token=routeverify'));
     expect(res.status).toBe(200);
@@ -126,9 +118,21 @@ describe('email verify token', () => {
   });
 });
 
-describe('email unsubscribe token', () => {
-  it('erases the encrypted credential and clears watched/known rows', async () => {
-    await seedSub({ login: 'uuser', verifyToken: 'rawverify', unsubscribeToken: 'rawunsub' });
+describe('stateless unsubscribe token', () => {
+  it('round-trips the login and rejects tampered/foreign tokens', async () => {
+    const token = await makeUnsubscribeToken(appEnv, 'octocat');
+    expect(await readUnsubscribeToken(appEnv, token)).toBe('octocat');
+
+    // Splicing another login's value onto this signature must not verify.
+    const other = (await makeUnsubscribeToken(appEnv, 'attacker')).split('.')[0];
+    const sig = token.split('.')[1];
+    expect(await readUnsubscribeToken(appEnv, `${other}.${sig}`)).toBeNull();
+    expect(await readUnsubscribeToken(appEnv, 'garbage')).toBeNull();
+    expect(await readUnsubscribeToken(appEnv, '')).toBeNull();
+  });
+
+  it('erases the encrypted credential and clears watched/known rows (one-click POST)', async () => {
+    await seedSub({ login: 'uuser', verifyToken: 'rawverify' });
     // Things that must stop running once unsubscribed.
     await DB.prepare(`INSERT INTO watched_repos (login, full_name) VALUES (?, ?)`)
       .bind('uuser', 'uuser/repo')
@@ -140,14 +144,17 @@ describe('email unsubscribe token', () => {
       .bind('uuser', 'uuser/repo', 'evil/clone', NOW)
       .run();
 
-    const login = await deactivateByUnsubscribeToken(appEnv, 'rawunsub');
-    expect(login).toBe('uuser');
+    const token = await makeUnsubscribeToken(appEnv, 'uuser');
+    const res = await SELF.fetch(url(`/email/unsubscribe?token=${encodeURIComponent(token)}`), {
+      method: 'POST',
+    });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('Unsubscribed');
 
     const row = await getSubscription(appEnv, 'uuser');
     expect(row?.active).toBe(0);
     // The dormant encrypted GitHub token must be wiped, not just disabled.
     expect(row?.tokenEnc).toBe('');
-    expect(row?.unsubscribeToken).toBeNull();
     expect(row?.verifyToken).toBeNull();
 
     const watched = await DB.prepare(`SELECT COUNT(*) AS n FROM watched_repos WHERE login = ?`)
@@ -160,20 +167,17 @@ describe('email unsubscribe token', () => {
     expect(known?.n).toBe(0);
   });
 
-  it('rejects an unknown unsubscribe token', async () => {
-    expect(await deactivateByUnsubscribeToken(appEnv, 'nope')).toBeNull();
-    expect(await deactivateByUnsubscribeToken(appEnv, '')).toBeNull();
-  });
+  it('an invalid token does NOT deactivate an existing subscription', async () => {
+    await seedSub({ login: 'suser', verifyToken: 'rawverify' });
 
-  it('drives RFC 8058 one-click unsubscribe through POST /email/unsubscribe', async () => {
-    await seedSub({ login: 'puser', verifyToken: 'rawverify', unsubscribeToken: 'postunsub' });
+    const res = await SELF.fetch(url('/email/unsubscribe?token=not-a-valid-signature'), {
+      method: 'POST',
+    });
+    expect(res.status).toBe(200); // route doesn't leak existence
+    expect(await res.text()).toContain('Already unsubscribed');
 
-    const res = await SELF.fetch(url('/email/unsubscribe?token=postunsub'), { method: 'POST' });
-    expect(res.status).toBe(200);
-    expect(await res.text()).toContain('Unsubscribed');
-
-    const row = await getSubscription(appEnv, 'puser');
-    expect(row?.active).toBe(0);
-    expect(row?.tokenEnc).toBe('');
+    const row = await getSubscription(appEnv, 'suser');
+    expect(row?.active).toBe(1); // untouched
+    expect(row?.tokenEnc).toBe('enc-blob-not-empty');
   });
 });

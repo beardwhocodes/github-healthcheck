@@ -1,10 +1,9 @@
-import { randomToken } from '../auth/crypto.js';
 import type { Env } from '../env.js';
 
-// Verify/unsubscribe tokens are stored as a SHA-256 hash, never plaintext: a DB
-// read can't reconstruct a working capability link, and the raw token lives only
-// in the emailed URL. Hashing is implemented locally (Web Crypto) on purpose —
-// the auth/session crypto module is owned elsewhere and we don't depend on it.
+// The email-confirmation (verify) token is stored as a SHA-256 hash, never
+// plaintext: a DB read can't reconstruct a working link, and the raw token lives
+// only in the emailed URL. (Unsubscribe is a stateless HMAC token — see
+// unsubscribe-token.ts — so it is never stored at all.)
 const tokenEncoder = new TextEncoder();
 
 async function hashToken(token: string): Promise<string> {
@@ -23,7 +22,6 @@ export interface Subscription {
   active: number;
   verified: number;
   verifyToken: string | null;
-  unsubscribeToken: string | null;
   verifiedAt: number | null;
   createdAt: number;
   lastRunAt: number | null;
@@ -40,6 +38,9 @@ interface SubscriptionRow {
   active: number;
   verified: number;
   verify_token: string | null;
+  // Retained from the 0001 baseline but no longer used: unsubscribe is now a
+  // stateless HMAC token (unsubscribe-token.ts), never persisted. Left in place
+  // because migrations are append-only; always NULL on rows written since.
   unsubscribe_token: string | null;
   verified_at: number | null;
   created_at: number;
@@ -56,7 +57,6 @@ function rowToSubscription(row: SubscriptionRow): Subscription {
     active: row.active,
     verified: row.verified,
     verifyToken: row.verify_token,
-    unsubscribeToken: row.unsubscribe_token,
     verifiedAt: row.verified_at,
     createdAt: row.created_at,
     lastRunAt: row.last_run_at,
@@ -74,39 +74,28 @@ export async function upsertSubscription(
     email: string;
     tokenEnc: string;
     verifyToken: string;
-    unsubscribeToken: string;
     now: number;
   },
 ): Promise<void> {
-  // Store only the token HASHES; the raw tokens go into the emailed URLs.
+  // Store only the verify-token HASH; the raw token goes into the emailed URL.
   const verifyHash = await hashToken(args.verifyToken);
-  const unsubscribeHash = await hashToken(args.unsubscribeToken);
   const verifyExpiresAt = args.now + VERIFY_TOKEN_TTL_MS;
   await env.DB.prepare(
     `INSERT INTO alert_subscriptions
-       (login, email, token_enc, active, verified, verify_token, unsubscribe_token, verified_at, created_at, verify_expires_at)
-     VALUES (?, ?, ?, 1, 0, ?, ?, NULL, ?, ?)
+       (login, email, token_enc, active, verified, verify_token, verified_at, created_at, verify_expires_at)
+     VALUES (?, ?, ?, 1, 0, ?, NULL, ?, ?)
      ON CONFLICT(login) DO UPDATE SET
        email = excluded.email,
        token_enc = excluded.token_enc,
        active = 1,
        verified = 0,
        verify_token = excluded.verify_token,
-       unsubscribe_token = excluded.unsubscribe_token,
        verified_at = NULL,
        last_run_at = NULL,
        last_scanned_at = NULL,
        verify_expires_at = excluded.verify_expires_at`,
   )
-    .bind(
-      args.login,
-      args.email,
-      args.tokenEnc,
-      verifyHash,
-      unsubscribeHash,
-      args.now,
-      verifyExpiresAt,
-    )
+    .bind(args.login, args.email, args.tokenEnc, verifyHash, args.now, verifyExpiresAt)
     .run();
 }
 
@@ -177,23 +166,6 @@ export function deleteAlertDataStatements(env: Env, login: string): D1PreparedSt
     env.DB.prepare(`DELETE FROM watched_repos WHERE login = ?`).bind(login),
     env.DB.prepare(`DELETE FROM known_clones WHERE login = ?`).bind(login),
   ];
-}
-
-// No-login unsubscribe via the token embedded in emails. Returns the login that
-// was unsubscribed, or null if the token is unknown.
-export async function deactivateByUnsubscribeToken(
-  env: Env,
-  token: string,
-): Promise<string | null> {
-  if (!token) return null;
-  const row = await env.DB.prepare(
-    `SELECT login FROM alert_subscriptions WHERE unsubscribe_token = ?`,
-  )
-    .bind(await hashToken(token))
-    .first<{ login: string }>();
-  if (!row) return null;
-  await deactivateSubscription(env, row.login);
-  return row.login;
 }
 
 // Only verified, active, NON-suspended subscriptions are ever scanned/emailed by
@@ -281,19 +253,6 @@ export async function setLastRun(env: Env, login: string, now: number): Promise<
   await env.DB.prepare(`UPDATE alert_subscriptions SET last_run_at = ? WHERE login = ?`)
     .bind(now, login)
     .run();
-}
-
-// The cron emails impersonation alerts long after subscribe time, when only the
-// stored HASH of the unsubscribe token survives. Mint a fresh raw token, persist
-// its hash, and return the raw token for the email's unsubscribe URL. Older
-// emails' links stop working — acceptable; the newest alert always carries a
-// valid one (required for RFC 8058 one-click unsubscribe).
-export async function rotateUnsubscribeToken(env: Env, login: string): Promise<string> {
-  const raw = randomToken(32);
-  await env.DB.prepare(`UPDATE alert_subscriptions SET unsubscribe_token = ? WHERE login = ?`)
-    .bind(await hashToken(raw), login)
-    .run();
-  return raw;
 }
 
 // last_scanned_at is the sharding cursor. The cron advances it whenever a sub is

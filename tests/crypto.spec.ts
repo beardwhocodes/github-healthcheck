@@ -6,7 +6,9 @@ import {
   randomToken,
   sha256Hex,
   sign,
+  signToken,
   verify,
+  verifyToken,
 } from '../src/auth/crypto.js';
 
 // Must be >= 32 chars: crypto now fails closed on weak SESSION_SECRET.
@@ -101,6 +103,39 @@ describe('sign / verify', () => {
 
   it('returns null for a string with no dot', async () => {
     expect(await verify('nodot', S)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// signToken / verifyToken (URL-safe stateless capability tokens, e.g. unsubscribe)
+// ---------------------------------------------------------------------------
+describe('signToken / verifyToken', () => {
+  it('round-trips the signed value', async () => {
+    const t = await signToken('unsub:octocat', S);
+    expect(await verifyToken(t, S)).toBe('unsub:octocat');
+  });
+
+  it('produces a URL-safe token (no +, /, = — safe to drop into a link)', async () => {
+    // A value long enough that base64 would otherwise emit padding/+//.
+    const t = await signToken('unsub:some-fairly-long-github-login-x', S);
+    expect(t).not.toMatch(/[+/=]/);
+  });
+
+  it('returns null for a tampered value segment', async () => {
+    const t = await signToken('unsub:victim', S);
+    const [, sig] = t.split('.');
+    const forged = (await signToken('unsub:attacker', S)).split('.')[0];
+    expect(await verifyToken(`${forged}.${sig}`, S)).toBeNull();
+  });
+
+  it('returns null when verified with a different secret', async () => {
+    expect(await verifyToken(await signToken('unsub:x', S), S2)).toBeNull();
+  });
+
+  it('returns null (no throw) for malformed input', async () => {
+    expect(await verifyToken('nodot', S)).toBeNull();
+    expect(await verifyToken('@@@.@@@', S)).toBeNull();
+    expect(await verifyToken('', S)).toBeNull();
   });
 });
 

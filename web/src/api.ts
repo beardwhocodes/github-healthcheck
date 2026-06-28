@@ -215,11 +215,11 @@ export const api = {
       throw err;
     }
   },
-  selfReport: (limit?: number) =>
-    get<SelfReportResponse>(`/api/report${limit ? `?limit=${limit}` : ''}`),
   // POST (server now rejects GET): these trigger work + a scan-log write, so
-  // they must not be drivable by a SameSite=Lax link-click. `target` stays a
-  // query param to preserve the existing request shape.
+  // they must not be drivable by a SameSite=Lax link-click. Query params (limit/
+  // target) are preserved to keep the existing request shape.
+  selfReport: (limit?: number) =>
+    send<SelfReportResponse>(`/api/report${limit ? `?limit=${limit}` : ''}`, 'POST'),
   scan: (target: string) =>
     send<ScanResponse>(`/api/scan?target=${encodeURIComponent(target)}`, 'POST'),
   clones: () => send<ClonesResponse>('/api/clones', 'POST'),

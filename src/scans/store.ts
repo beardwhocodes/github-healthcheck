@@ -26,6 +26,14 @@ export function deleteScansStatement(env: Env, login: string): D1PreparedStateme
   return env.DB.prepare(`DELETE FROM scans WHERE login = ?`).bind(login);
 }
 
+// Retention sweep: drop scan-log rows older than the cutoff so the table can't
+// grow without bound. Run daily from the cron. created_at is indexed (0001), so
+// this stays cheap. Returns the number of rows removed (for logging).
+export async function pruneOldScans(env: Env, olderThan: number): Promise<number> {
+  const res = await env.DB.prepare(`DELETE FROM scans WHERE created_at < ?`).bind(olderThan).run();
+  return res.meta.changes ?? 0;
+}
+
 export async function countScansSince(env: Env, since: number): Promise<number> {
   const row = await env.DB.prepare(`SELECT COUNT(*) AS n FROM scans WHERE created_at >= ?`)
     .bind(since)

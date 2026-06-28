@@ -1,5 +1,6 @@
 import type { Env } from '../env.js';
 import type { CloneMatch } from '../engine/types.js';
+import { makeUnsubscribeToken } from './unsubscribe-token.js';
 
 const FROM_NAME = 'GitHub Healthcheck';
 
@@ -42,10 +43,10 @@ async function send(
 // Double opt-in: sent on subscribe. Confirms ownership before any alert fires.
 export async function sendVerificationEmail(
   env: Env,
-  args: { to: string; login: string; verifyToken: string; unsubscribeToken: string },
+  args: { to: string; login: string; verifyToken: string },
 ): Promise<{ sent: boolean }> {
   const verify = verifyUrl(env.APP_URL, args.verifyToken);
-  const unsub = unsubscribeUrl(env.APP_URL, args.unsubscribeToken);
+  const unsub = unsubscribeUrl(env.APP_URL, await makeUnsubscribeToken(env, args.login));
   const subject = 'Confirm your GitHub Healthcheck alerts';
 
   const text = [
@@ -75,9 +76,9 @@ export async function sendVerificationEmail(
 // Sent by the daily cron when NEW suspected clones appear.
 export async function sendImpersonationAlert(
   env: Env,
-  args: { to: string; login: string; matches: CloneMatch[]; unsubscribeToken: string },
+  args: { to: string; login: string; matches: CloneMatch[] },
 ): Promise<{ sent: boolean }> {
-  const unsub = unsubscribeUrl(env.APP_URL, args.unsubscribeToken);
+  const unsub = unsubscribeUrl(env.APP_URL, await makeUnsubscribeToken(env, args.login));
   const n = args.matches.length;
   const subject = `GitHub Healthcheck: ${n} new possible clone${n === 1 ? '' : 's'} of your repositories`;
 

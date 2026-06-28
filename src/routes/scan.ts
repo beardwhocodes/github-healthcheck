@@ -94,7 +94,10 @@ scan.delete('/me', async (c) => {
 });
 
 // Full self-audit: the signed-in user's account + each of their repositories.
-scan.get('/report', requireNotSuspended, rateLimit(SCAN_BURST, SCAN_DAILY), async (c) => {
+// POST, not GET: it writes a scan-log row (logScan), so it is state-changing and
+// must sit behind the CSRF/origin gate — a victim clicking a crafted link must
+// not be able to trigger (and meter) a self-audit on their behalf.
+scan.post('/report', requireNotSuspended, rateLimit(SCAN_BURST, SCAN_DAILY), async (c) => {
   const client = c.get('client');
   const session = c.get('session');
   const limit = clampLimit(c.req.query('limit'));
