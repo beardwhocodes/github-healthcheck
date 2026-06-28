@@ -82,8 +82,10 @@ async function seedSession(login: string): Promise<string> {
   return id;
 }
 
+// APP_URL is https in the test env, so the session cookie is set/read under the
+// __Host- prefix (see session.ts cookiePrefix).
 function as(cookie: string): RequestInit {
-  return { headers: { Cookie: `rs_session=${cookie}` } };
+  return { headers: { Cookie: `__Host-rs_session=${cookie}` } };
 }
 
 function url(path: string): string {
@@ -161,7 +163,11 @@ describe('suspension enforcement', () => {
     const cookie = await seedSession('bob');
     const res = await SELF.fetch(url('/api/alerts'), {
       method: 'POST',
-      headers: { Cookie: `rs_session=${cookie}`, 'Content-Type': 'application/json' },
+      headers: {
+        Cookie: `__Host-rs_session=${cookie}`,
+        'Content-Type': 'application/json',
+        Origin: 'https://test.local',
+      },
       body: JSON.stringify({ email: 'x@example.com' }),
     });
     expect(res.status).toBe(403);
@@ -177,7 +183,13 @@ describe('admin actions honour the policy guards (real getUser + real policy)', 
   function post(path: string, cookie: string, body: unknown): Promise<Response> {
     return SELF.fetch(url(path), {
       method: 'POST',
-      headers: { Cookie: `rs_session=${cookie}`, 'Content-Type': 'application/json' },
+      headers: {
+        Cookie: `__Host-rs_session=${cookie}`,
+        'Content-Type': 'application/json',
+        // Same-origin Origin header: browsers attach it to unsafe-method requests,
+        // and the API's CSRF gate now fails closed when it is absent.
+        Origin: 'https://test.local',
+      },
       body: JSON.stringify(body),
     });
   }

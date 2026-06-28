@@ -23,9 +23,23 @@ describe('buildUserListQuery', () => {
       status: 'all',
       limit: 50,
     });
-    expect(sql).toContain('(u.login LIKE ? OR u.name LIKE ?)');
+    expect(sql).toContain("u.login LIKE ? ESCAPE '\\'");
+    expect(sql).toContain("u.name LIKE ? ESCAPE '\\'");
     // Order must be: velocity window, search, search, limit.
     expect(binds).toEqual([SINCE, '%octocat%', '%octocat%', 50]);
+    expect(placeholderCount(sql)).toBe(binds.length);
+  });
+
+  it('escapes LIKE wildcards so % and _ match literally', () => {
+    const { sql, binds } = buildUserListQuery({
+      since24h: SINCE,
+      query: '50%_off',
+      status: 'all',
+      limit: 10,
+    });
+    // % and _ (and any backslash) in the term are escaped so they are matched as
+    // literal characters rather than acting as wildcards.
+    expect(binds).toEqual([SINCE, '%50\\%\\_off%', '%50\\%\\_off%', 10]);
     expect(placeholderCount(sql)).toBe(binds.length);
   });
 

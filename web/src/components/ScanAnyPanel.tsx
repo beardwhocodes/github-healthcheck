@@ -43,7 +43,7 @@ export function ScanAnyPanel() {
             onKeyDown={(e) => e.key === 'Enter' && run()}
             aria-label="GitHub repo or account to scan"
           />
-          <button className="btn" onClick={run} disabled={loading || !target.trim()}>
+          <button type="button" className="btn" onClick={run} disabled={loading || !target.trim()}>
             {loading ? <span className="spinner" /> : 'Scan'}
           </button>
         </div>

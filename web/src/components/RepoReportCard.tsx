@@ -1,12 +1,15 @@
 import { useState } from 'react';
 
 import type { RepoReport } from '../api.js';
-import { fmtDate } from '../ui.js';
+import { fmtDate, safeExternalUrl } from '../ui.js';
 import { BandBadge, FindingItem, MiniGauge } from './Primitives.js';
 
 export function RepoReportCard({ report, defaultOpen = false }: { report: RepoReport; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(defaultOpen);
   const findingCount = report.findings.length;
+  // Route through the same https-only guard as suspectUrl elsewhere, so an
+  // unexpected non-https htmlUrl can never become a clickable href.
+  const repoUrl = safeExternalUrl(report.repo.htmlUrl);
 
   return (
     <div className="repo-card">
@@ -39,7 +42,7 @@ export function RepoReportCard({ report, defaultOpen = false }: { report: RepoRe
           {findingCount === 0 ? (
             <p className="muted small mt8">
               No campaign indicators detected.{' '}
-              <a href={report.repo.htmlUrl} target="_blank" rel="noreferrer noopener">
+              <a href={repoUrl} target="_blank" rel="noreferrer noopener">
                 View on GitHub ↗
               </a>
             </p>
@@ -49,7 +52,7 @@ export function RepoReportCard({ report, defaultOpen = false }: { report: RepoRe
                 <FindingItem finding={f} key={f.id} />
               ))}
               <p className="faint small mt8">
-                <a href={report.repo.htmlUrl} target="_blank" rel="noreferrer noopener">
+                <a href={repoUrl} target="_blank" rel="noreferrer noopener">
                   View {report.repo.fullName} on GitHub ↗
                 </a>
               </p>

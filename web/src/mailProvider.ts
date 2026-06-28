@@ -4,8 +4,21 @@
 // deep-linkable). Unknown / custom domains return null (we can't guess the
 // webmail), and the user just checks their mail normally.
 
-// The address our verification email is sent from (production sender).
-const SENDER = 'noreply@github-healthcheck.beardwho.codes';
+// This tsconfig sets `types: []` and doesn't pull in `vite/client`, so the env
+// shape isn't ambient — declare just the build-time var we read. Vite statically
+// replaces `import.meta.env.VITE_*` at build time.
+declare global {
+  interface ImportMeta {
+    readonly env: { readonly VITE_ALERT_FROM_EMAIL?: string };
+  }
+}
+
+// The address our verification email is sent from (production sender). Keep it in
+// agreement with ALERT_FROM_EMAIL in wrangler.jsonc so the Gmail deep-link below
+// filters on the address that actually sent the mail. Forkers set the
+// VITE_ALERT_FROM_EMAIL build env var or edit the fallback (see the Fork /
+// self-host table in README).
+const SENDER = import.meta.env.VITE_ALERT_FROM_EMAIL ?? 'noreply@github-healthcheck.beardwho.codes';
 
 export interface MailProvider {
   name: string;
@@ -20,7 +33,10 @@ function gmail(): MailProvider {
   return { name: 'Gmail', url: `https://mail.google.com/mail/u/0/#search/${query}`, search: true };
 }
 
-const INBOX: Record<string, MailProvider> = {
+// `satisfies` (not an explicit `Record<string, MailProvider>` annotation) keeps
+// the literal key set in the inferred type, so `INBOX[key]` for a known key
+// resolves to `MailProvider` rather than `MailProvider | undefined`.
+const INBOX = {
   outlook: { name: 'Outlook', url: 'https://outlook.live.com/mail/0/', search: false },
   yahoo: { name: 'Yahoo Mail', url: 'https://mail.yahoo.com/', search: false },
   icloud: { name: 'iCloud Mail', url: 'https://www.icloud.com/mail/', search: false },
@@ -30,37 +46,38 @@ const INBOX: Record<string, MailProvider> = {
   zoho: { name: 'Zoho Mail', url: 'https://mail.zoho.com/', search: false },
   gmx: { name: 'GMX', url: 'https://www.gmx.com/', search: false },
   yandex: { name: 'Yandex Mail', url: 'https://mail.yandex.com/', search: false },
-};
+} satisfies Record<string, MailProvider>;
 
-// Known consumer domains → provider key.
-const DOMAIN_MAP: Record<string, () => MailProvider> = {
-  'gmail.com': gmail,
-  'googlemail.com': gmail,
-  'outlook.com': () => INBOX.outlook!,
-  'hotmail.com': () => INBOX.outlook!,
-  'live.com': () => INBOX.outlook!,
-  'msn.com': () => INBOX.outlook!,
-  'yahoo.com': () => INBOX.yahoo!,
-  'ymail.com': () => INBOX.yahoo!,
-  'rocketmail.com': () => INBOX.yahoo!,
-  'icloud.com': () => INBOX.icloud!,
-  'me.com': () => INBOX.icloud!,
-  'mac.com': () => INBOX.icloud!,
-  'proton.me': () => INBOX.proton!,
-  'protonmail.com': () => INBOX.proton!,
-  'pm.me': () => INBOX.proton!,
-  'fastmail.com': () => INBOX.fastmail!,
-  'aol.com': () => INBOX.aol!,
-  'zoho.com': () => INBOX.zoho!,
-  'gmx.com': () => INBOX.gmx!,
-  'gmx.net': () => INBOX.gmx!,
-  'yandex.com': () => INBOX.yandex!,
-  'yandex.ru': () => INBOX.yandex!,
+// Known consumer domains → an INBOX key, or 'gmail' for the dynamic deep link.
+const DOMAIN_MAP: Record<string, keyof typeof INBOX | 'gmail'> = {
+  'gmail.com': 'gmail',
+  'googlemail.com': 'gmail',
+  'outlook.com': 'outlook',
+  'hotmail.com': 'outlook',
+  'live.com': 'outlook',
+  'msn.com': 'outlook',
+  'yahoo.com': 'yahoo',
+  'ymail.com': 'yahoo',
+  'rocketmail.com': 'yahoo',
+  'icloud.com': 'icloud',
+  'me.com': 'icloud',
+  'mac.com': 'icloud',
+  'proton.me': 'proton',
+  'protonmail.com': 'proton',
+  'pm.me': 'proton',
+  'fastmail.com': 'fastmail',
+  'aol.com': 'aol',
+  'zoho.com': 'zoho',
+  'gmx.com': 'gmx',
+  'gmx.net': 'gmx',
+  'yandex.com': 'yandex',
+  'yandex.ru': 'yandex',
 };
 
 export function mailProviderFor(email: string): MailProvider | null {
   const domain = email.split('@')[1]?.toLowerCase().trim();
   if (!domain) return null;
-  const resolve = DOMAIN_MAP[domain];
-  return resolve ? resolve() : null;
+  const key = DOMAIN_MAP[domain];
+  if (!key) return null;
+  return key === 'gmail' ? gmail() : INBOX[key];
 }

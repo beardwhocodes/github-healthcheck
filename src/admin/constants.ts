@@ -1,10 +1,20 @@
 // Admin back-end vocabulary + bootstrap configuration. Pure data, no I/O — safe
 // to import from both the Worker and (indirectly, via the engine boundary) tests.
 
-// GitHub logins that are ALWAYS admins, re-promoted on every sign-in. Storing
-// this here (not only in the DB) means the owner keeps access through a database
-// reset or re-seed. Additional admins can be promoted at runtime via the UI.
-export const BOOTSTRAP_ADMIN_LOGINS: readonly string[] = ['copyjosh'];
+// GitHub logins that are ALWAYS admins, re-promoted on every sign-in and
+// protected from demotion/suspension — the "bootstrap admin" list. Sourced from
+// the ADMIN_LOGINS env var (comma-separated) so the owner keeps access through a
+// database reset or re-seed, while forks start with NO permanent superadmin
+// (unset = empty). Parsing is pure string handling (no I/O), and the resulting
+// list is threaded explicitly into the policy and user-store layers so those
+// modules never read env directly. Additional admins can be promoted at runtime.
+export function parseAdminLogins(raw: string | undefined): readonly string[] {
+  if (!raw) return [];
+  return raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
 
 export type Role = 'user' | 'admin';
 export const ROLES: readonly Role[] = ['user', 'admin'];

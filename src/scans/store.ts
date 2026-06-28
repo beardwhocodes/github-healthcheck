@@ -20,6 +20,12 @@ export async function recordScan(
   ]);
 }
 
+// Delete a user's scan history, for full account erasure (DELETE /api/me).
+// Returns the statement so it runs atomically in the account-deletion batch.
+export function deleteScansStatement(env: Env, login: string): D1PreparedStatement {
+  return env.DB.prepare(`DELETE FROM scans WHERE login = ?`).bind(login);
+}
+
 export async function countScansSince(env: Env, since: number): Promise<number> {
   const row = await env.DB.prepare(`SELECT COUNT(*) AS n FROM scans WHERE created_at >= ?`)
     .bind(since)

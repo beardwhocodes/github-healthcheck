@@ -86,6 +86,12 @@ export async function recordReport(
     .run();
 }
 
+// Delete the repos a user reported, for full account erasure (DELETE /api/me).
+// Returns the statement so it runs atomically in the account-deletion batch.
+export function deleteReportsStatement(env: Env, login: string): D1PreparedStatement {
+  return env.DB.prepare(`DELETE FROM reported_repos WHERE reporter_login = ?`).bind(login);
+}
+
 export async function getReport(env: Env, id: string): Promise<ReportRecord | null> {
   const row = await env.DB.prepare(`SELECT * FROM reported_repos WHERE id = ?`)
     .bind(id)

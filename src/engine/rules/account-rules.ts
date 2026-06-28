@@ -61,7 +61,16 @@ export const accountClusteredActivity: AccountRule = (account, repos) => {
   let maxInWindow = 0;
   let start = 0;
   for (let end = 0; end < created.length; end++) {
-    while (created[end]! - created[start]! > windowMs) start++;
+    const endTime = created[end];
+    if (endTime === undefined) continue;
+    // `start` only ever trails `end`, so created[start] stays defined; re-reading
+    // it (and the undefined check) keeps the index access honest without altering
+    // the window math.
+    let startTime = created[start];
+    while (startTime !== undefined && endTime - startTime > windowMs) {
+      start++;
+      startTime = created[start];
+    }
     maxInWindow = Math.max(maxInWindow, end - start + 1);
   }
 
@@ -83,9 +92,16 @@ export const accountClusteredActivity: AccountRule = (account, repos) => {
 // 4. Several of the account's repos have archive-pushing READMEs — i.e. the
 //    account itself looks like a distribution hub, not a one-off.
 export const accountManyArchiveReadmes: AccountRule = (_account, _repos, reports) => {
+  // A severity-'low' readme-references-archive is the deliberately-demoted
+  // variant (a bare prose filename or a GitHub-hosted release link). Devs who
+  // link their own GitHub releases should not be counted toward a "coordinated
+  // distribution account" verdict, so only the arming (>= medium) variant
+  // qualifies here.
   const archiveReadmeRepos = reports.filter((r) =>
     r.findings.some(
-      (f) => f.id === 'readme-references-archive' || f.id === 'readme-download-badge',
+      (f) =>
+        (f.id === 'readme-references-archive' && f.severity !== 'low') ||
+        f.id === 'readme-download-badge',
     ),
   );
   if (archiveReadmeRepos.length < 2) return null;

@@ -1,6 +1,7 @@
 import type { Context, Next } from 'hono';
 
 import { isAdminUser } from '../admin/policy.js';
+import { parseAdminLogins } from '../admin/constants.js';
 import type { Env } from '../env.js';
 import { consumeRateLimits } from '../ratelimit/store.js';
 import type { RateTier } from '../ratelimit/store.js';
@@ -14,7 +15,7 @@ type AppCtx = Context<{ Bindings: Env; Variables: Vars }>;
 export function rateLimit(...tiers: RateTier[]) {
   return async function enforce(c: AppCtx, next: Next): Promise<Response | void> {
     const user = c.get('user');
-    if (user && isAdminUser(user)) return next();
+    if (user && isAdminUser(user, parseAdminLogins(c.env.ADMIN_LOGINS))) return next();
 
     const { login } = c.get('session');
     const result = await consumeRateLimits(c.env, login, tiers, Date.now());

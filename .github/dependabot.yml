@@ -1,0 +1,16 @@
+# Weekly dependency updates. The npm ecosystem covers the pnpm workspace
+# (Dependabot reads pnpm-lock.yaml); github-actions keeps the workflow's action
+# pins current so we don't hand-pin SHAs.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10

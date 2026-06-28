@@ -48,7 +48,13 @@ async function seedSession(login: string): Promise<string> {
 function postReport(cookie: string, suspect: string): Promise<Response> {
   return SELF.fetch('https://test.local/api/reports', {
     method: 'POST',
-    headers: { Cookie: `rs_session=${cookie}`, 'Content-Type': 'application/json' },
+    headers: {
+      // __Host- prefix: APP_URL is https in the test env. Origin: the CSRF gate
+      // fails closed without it (browsers send it on unsafe-method requests).
+      Cookie: `__Host-rs_session=${cookie}`,
+      'Content-Type': 'application/json',
+      Origin: 'https://test.local',
+    },
     body: JSON.stringify({ suspectRepo: suspect, category: 'malware' }),
   });
 }

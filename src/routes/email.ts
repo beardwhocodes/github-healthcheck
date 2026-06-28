@@ -13,7 +13,7 @@ email.get('/verify', async (c) => {
   const sub = await verifyByToken(c.env, token, Date.now());
   if (!sub) {
     return c.html(
-      page('Link expired', html`This confirmation link is invalid or has already been used. Re-subscribe from the app to get a fresh one.`, c.env.APP_URL),
+      page('Link expired', html`This confirmation link is invalid, has expired, or has already been used. Re-subscribe from the app to get a fresh one.`, c.env.APP_URL),
       400,
     );
   }

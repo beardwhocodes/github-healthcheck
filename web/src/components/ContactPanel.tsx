@@ -93,7 +93,7 @@ export function ContactPanel({ defaultEmail }: { defaultEmail?: string }) {
           onChange={(e) => setEmail(e.target.value)}
         />
 
-        <button className="btn mt16" onClick={submit} disabled={busy}>
+        <button type="button" className="btn mt16" onClick={submit} disabled={busy}>
           {busy ? <span className="spinner" /> : 'Send message'}
         </button>
       </div>

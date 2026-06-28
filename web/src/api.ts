@@ -217,12 +217,19 @@ export const api = {
   },
   selfReport: (limit?: number) =>
     get<SelfReportResponse>(`/api/report${limit ? `?limit=${limit}` : ''}`),
-  scan: (target: string) => get<ScanResponse>(`/api/scan?target=${encodeURIComponent(target)}`),
-  clones: () => get<ClonesResponse>('/api/clones'),
+  // POST (server now rejects GET): these trigger work + a scan-log write, so
+  // they must not be drivable by a SameSite=Lax link-click. `target` stays a
+  // query param to preserve the existing request shape.
+  scan: (target: string) =>
+    send<ScanResponse>(`/api/scan?target=${encodeURIComponent(target)}`, 'POST'),
+  clones: () => send<ClonesResponse>('/api/clones', 'POST'),
   alerts: () => get<AlertsStatus>('/api/alerts'),
   subscribe: (email: string) => send<AlertsStatus>('/api/alerts', 'POST', { email }),
   unsubscribe: () => send<AlertsStatus>('/api/alerts', 'DELETE'),
   logout: () => send<{ ok: boolean }>('/auth/logout', 'POST'),
+  // Permanently erase the account: revokes the GitHub OAuth grant, deletes all
+  // stored rows (sessions, alerts, scans, messages, reports), destroys the session.
+  deleteAccount: () => send<{ ok: boolean }>('/api/me', 'DELETE'),
 
   // Support / reporting (any signed-in user).
   submitContact: (input: { subject: string; body: string; email?: string }) =>
@@ -252,14 +259,17 @@ export const api = {
       get<{ user: AdminUserBase; recentScans: ScanLogItem[] }>(
         `/api/admin/users/${encodeURIComponent(login)}`,
       ),
+    // These mutations return the durable user record (AdminUserBase) — they do
+    // NOT carry the list-only recentScans/velocity fields. The caller merges the
+    // returned base onto the existing list row rather than replacing it.
     suspend: (login: string, reason: string) =>
-      send<{ user: AdminUser }>(`/api/admin/users/${encodeURIComponent(login)}/suspend`, 'POST', {
+      send<{ user: AdminUserBase }>(`/api/admin/users/${encodeURIComponent(login)}/suspend`, 'POST', {
         reason,
       }),
     unsuspend: (login: string) =>
-      send<{ user: AdminUser }>(`/api/admin/users/${encodeURIComponent(login)}/unsuspend`, 'POST'),
+      send<{ user: AdminUserBase }>(`/api/admin/users/${encodeURIComponent(login)}/unsuspend`, 'POST'),
     setRole: (login: string, role: Role) =>
-      send<{ user: AdminUser }>(`/api/admin/users/${encodeURIComponent(login)}/role`, 'POST', {
+      send<{ user: AdminUserBase }>(`/api/admin/users/${encodeURIComponent(login)}/role`, 'POST', {
         role,
       }),
     messages: (status?: string) =>
