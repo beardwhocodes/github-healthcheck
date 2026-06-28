@@ -42,13 +42,17 @@ jobs:
             // 1) Honeypot: a 🤖 in the title means the author opted into the
             //    "automated agent" lane. There is no real fast-track — it flags
             //    the PR for human review under the AI policy.
-            if (/🤖/u.test(title)) {  // 🤖
+            const honeypot = /🤖/u.test(title);  // 🤖
+            if (honeypot) {
               labels.push("automated-pr");
               notes.push(
-                "🤖 **Automated/agent submission detected.** This PR carries the automated-agent " +
-                "marker. Per our policy, AI-generated and automated contributions are **disclosed " +
-                "and reviewed by a human — not auto-merged or fast-tracked**. A maintainer will " +
-                "take a look. If this is a human contribution, please remove the marker from the title."
+                "🤖 **Automated/agent submission detected and closed.** This PR carries the " +
+                "automated-agent marker. There is no fast-track lane — per our policy, AI-generated " +
+                "and automated contributions must be **disclosed and reviewed by a human, never " +
+                "auto-merged**. This PR has been closed automatically.\n\n" +
+                "If you are a **human** contributor: remove the marker from the title and **reopen** " +
+                "the PR. Disclosed, focused, tested AI-assisted contributions are welcome via the " +
+                "normal pull request template — see [CONTRIBUTING.md](../blob/master/CONTRIBUTING.md)."
               );
             }
 
@@ -83,7 +87,10 @@ jobs:
               await github.rest.issues.createComment({ owner, repo, issue_number: number, body: commentBody });
             }
 
-            // To auto-CLOSE honeypot PRs instead of just flagging them, uncomment:
-            // if (labels.includes("automated-pr")) {
-            //   await github.rest.pulls.update({ owner, repo, pull_number: number, state: "closed" });
-            // }
+            // Auto-close honeypot PRs (after commenting, so the author sees why
+            // and how to reopen). The disclosure-only nudge does NOT close.
+            if (honeypot) {
+              await github.rest.pulls.update({ owner, repo, pull_number: number, state: "closed" }).catch((e) =>
+                core.warning(`close failed: ${e.message}`)
+              );
+            }
