@@ -1,0 +1,5 @@
+# Shows the "Sponsor" button on the repo. PayPal is wired now (it matches the
+# in-app "Support ☕" button). To add GitHub Sponsors, set it up for your account
+# at https://github.com/sponsors, then uncomment the line below.
+# github: copyjosh
+custom: ["https://paypal.me/copyjosh"]

@@ -1,0 +1,20 @@
+name: Feature request / detection idea
+description: Suggest an improvement, or a new malware-clone tell to detect
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What's the problem or idea?
+      description: What are you trying to do, or what signal should the engine catch?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How might it work? For a new detection heuristic, link an example repo/account if you can.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
