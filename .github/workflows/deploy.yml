@@ -81,7 +81,7 @@ jobs:
       # Each migration in ./migrations runs exactly once (tracked in d1_migrations);
       # the baseline is idempotent so it safely adopts the existing database.
       - name: Apply D1 migrations
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -92,7 +92,7 @@ jobs:
       # secret GITHUB_CLIENT_SECRET is fed from the Actions secret
       # GH_OAUTH_CLIENT_SECRET (Actions forbids secret names starting GITHUB_).
       - name: Deploy Worker
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
