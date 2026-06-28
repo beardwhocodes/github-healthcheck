@@ -1,0 +1,50 @@
+name: Bug report
+description: Something isn't working as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report! For **security vulnerabilities**, please don't file a public issue — use a [private advisory](../../security/advisories/new) or see [SECURITY.md](../../blob/master/SECURITY.md).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Go to '...'
+        2. Click '...'
+        3. See error
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Detection / scoring (false positive or false negative)
+        - Sign-in / OAuth
+        - Scan a repo / account
+        - Clone detection
+        - Email alerts
+        - Admin
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      description: Browser + OS, or "self-hosted" with the relevant detail.
+      placeholder: e.g. Chrome 120 on macOS, or self-hosted on Cloudflare
+  - type: textarea
+    id: extra
+    attributes:
+      label: Logs / screenshots
+      description: Console output, network errors, or screenshots (redact anything sensitive).
