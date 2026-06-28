@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { ApiError, api } from '../../api.js';
-import type { AdminUser } from '../../api.js';
+import type { AdminUser, AdminUserBase } from '../../api.js';
 import { timeAgo } from '../../ui.js';
 
 const STATUS_OPTIONS = [
@@ -34,13 +34,16 @@ export function AdminUsers() {
     load();
   }, [load]);
 
-  function applyUser(updated: AdminUser) {
+  // Mutations return only the durable base record. Merge it onto the existing row
+  // so the list-only fields (recentScans/velocity) survive — replacing the row
+  // would drop them and crash the render that reads recentScans.toLocaleString().
+  function applyUser(base: AdminUserBase) {
     setUsers((prev) =>
-      prev ? prev.map((u) => (u.login === updated.login ? updated : u)) : prev,
+      prev ? prev.map((u) => (u.login === base.login ? { ...u, ...base } : u)) : prev,
     );
   }
 
-  async function runAction(login: string, action: () => Promise<{ user: AdminUser }>) {
+  async function runAction(login: string, action: () => Promise<{ user: AdminUserBase }>) {
     setPending(login);
     setActionError(null);
     try {

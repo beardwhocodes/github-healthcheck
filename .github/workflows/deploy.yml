@@ -15,6 +15,12 @@ concurrency:
   group: deploy-${{ github.ref }}
   cancel-in-progress: false
 
+# Least privilege by default: jobs can read the repo and nothing else. The deploy
+# job authenticates to Cloudflare with its own API token (a secret), not the
+# GITHUB_TOKEN, so it needs no extra GitHub scopes.
+permissions:
+  contents: read
+
 jobs:
   build-test:
     runs-on: ubuntu-latest
@@ -28,6 +34,11 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Surface known advisories in shipped (prod) dependencies without gating the
+      # build — security signal, not a hard failure, so a new CVE can't block deploys.
+      - name: Dependency audit (advisory, non-blocking)
+        run: pnpm audit --prod || true
+        continue-on-error: true
       - name: Typecheck
         run: pnpm typecheck
       - name: Lint
@@ -43,6 +54,9 @@ jobs:
 
   deploy:
     needs: build-test
+    # Deploys via the Cloudflare API token only; no GitHub write scopes needed.
+    permissions:
+      contents: read
     # Activates once Cloudflare is set up: set the repo variable DEPLOY_ENABLED=true
     # (Settings → Secrets and variables → Actions → Variables) AND add the
     # CLOUDFLARE_API_TOKEN secret. Until then, pushes build + test green and the

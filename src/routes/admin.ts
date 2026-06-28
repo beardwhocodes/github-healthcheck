@@ -24,7 +24,7 @@ import {
   unsuspendUser,
 } from '../users/store.js';
 import { listRecentScans, recentScansForUser, topScannedTargets } from '../scans/store.js';
-import { SCAN_KINDS } from '../admin/constants.js';
+import { SCAN_KINDS, parseAdminLogins } from '../admin/constants.js';
 import type { ScanKind } from '../admin/constants.js';
 import {
   getMessage,
@@ -45,21 +45,24 @@ admin.use('*', requireAdmin);
 
 const DAY = 24 * 60 * 60 * 1000;
 
+// Record an admin action before responding. Awaited (not fire-and-forget) so a
+// failed write surfaces as an error rather than silently dropping the
+// accountability row. The user mutations (suspend/unsuspend/role) instead write
+// their audit row atomically inside the same D1 batch as the change itself; this
+// helper covers the message/report actions whose stores live elsewhere.
 function audit(
   c: Context<{ Bindings: Env; Variables: Vars }>,
   action: AuditAction,
   target: string | null,
   detail: string | null,
-): void {
-  c.executionCtx.waitUntil(
-    recordAudit(c.env, {
-      adminLogin: c.get('user').login,
-      action,
-      target,
-      detail,
-      now: Date.now(),
-    }).catch((err) => console.log(`[audit] failed: ${String(err)}`)),
-  );
+): Promise<void> {
+  return recordAudit(c.env, {
+    adminLogin: c.get('user').login,
+    action,
+    target,
+    detail,
+    now: Date.now(),
+  });
 }
 
 // ── Overview ──────────────────────────────────────────────────────────────
@@ -118,14 +121,14 @@ admin.post('/users/:login/suspend', async (c) => {
   const target = await getUser(c.env, c.req.param('login'));
   if (!target) return c.json({ error: 'not_found' }, 404);
 
-  const decision = canSuspend(actor, target);
+  const decision = canSuspend(actor, target, parseAdminLogins(c.env.ADMIN_LOGINS));
   if (!decision.ok) return c.json({ error: 'forbidden', message: decision.reason }, 403);
 
   const body = await c.req.json<{ reason?: string }>().catch(() => ({}) as { reason?: string });
   const reason = (body.reason ?? '').trim().slice(0, 500) || 'Policy violation.';
 
+  // suspendUser writes the audit row in the same atomic batch as the suspension.
   await suspendUser(c.env, { login: target.login, reason, by: actor.login, now: Date.now() });
-  audit(c, 'suspend_user', target.login, reason);
   const updated = await getUser(c.env, target.login);
   if (!updated) return c.json({ error: 'not_found' }, 404);
   return c.json({ user: updated });
@@ -133,14 +136,13 @@ admin.post('/users/:login/suspend', async (c) => {
 
 admin.post('/users/:login/unsuspend', async (c) => {
   const actor = c.get('user');
-  const decision = canUnsuspend(actor);
+  const decision = canUnsuspend(actor, parseAdminLogins(c.env.ADMIN_LOGINS));
   if (!decision.ok) return c.json({ error: 'forbidden', message: decision.reason }, 403);
 
   const target = await getUser(c.env, c.req.param('login'));
   if (!target) return c.json({ error: 'not_found' }, 404);
 
-  await unsuspendUser(c.env, target.login);
-  audit(c, 'unsuspend_user', target.login, null);
+  await unsuspendUser(c.env, { login: target.login, by: actor.login, now: Date.now() });
   const updated = await getUser(c.env, target.login);
   if (!updated) return c.json({ error: 'not_found' }, 404);
   return c.json({ user: updated });
@@ -154,12 +156,11 @@ admin.post('/users/:login/role', async (c) => {
   const body = await c.req.json<{ role?: string }>().catch(() => ({}) as { role?: string });
   const role = body.role ?? '';
 
-  const decision = canSetRole(actor, target, role);
+  const decision = canSetRole(actor, target, role, parseAdminLogins(c.env.ADMIN_LOGINS));
   if (!decision.ok) return c.json({ error: 'forbidden', message: decision.reason }, 403);
   if (!isValidRole(role)) return c.json({ error: 'bad_request', message: 'Unknown role.' }, 400);
 
-  await setUserRole(c.env, target.login, role);
-  audit(c, 'set_role', target.login, role);
+  await setUserRole(c.env, { login: target.login, role, by: actor.login, now: Date.now() });
   const updated = await getUser(c.env, target.login);
   if (!updated) return c.json({ error: 'not_found' }, 404);
   return c.json({ user: updated });
@@ -187,7 +188,7 @@ admin.post('/messages/:id', async (c) => {
 
   if (reply) {
     await replyToMessage(c.env, { id, reply: reply.slice(0, 5000), now: Date.now() });
-    audit(c, 'reply_message', id, existing.subject);
+    await audit(c, 'reply_message', id, existing.subject);
     if (existing.email) {
       c.executionCtx.waitUntil(
         sendContactReply(c.env, {
@@ -203,7 +204,7 @@ admin.post('/messages/:id', async (c) => {
     }
   } else if (body.status && isValidMessageStatus(body.status)) {
     await updateMessageStatus(c.env, id, body.status);
-    audit(c, 'update_message', id, body.status);
+    await audit(c, 'update_message', id, body.status);
   } else {
     return c.json({ error: 'bad_request', message: 'Provide a reply or a valid status.' }, 400);
   }
@@ -239,7 +240,7 @@ admin.post('/reports/:id', async (c) => {
   }
 
   await updateReport(c.env, { id, status, notes, now: Date.now() });
-  audit(c, 'update_report', existing.suspectRepo, status ?? 'notes');
+  await audit(c, 'update_report', existing.suspectRepo, status ?? 'notes');
   const updated = await getReport(c.env, id);
   if (!updated) return c.json({ error: 'not_found' }, 404);
   return c.json({ report: updated });

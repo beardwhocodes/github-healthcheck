@@ -5,12 +5,14 @@ import type { AlertsStatus } from '../api.js';
 import { mailProviderFor } from '../mailProvider.js';
 import { timeAgo } from '../ui.js';
 
-export function AlertsPanel() {
+export function AlertsPanel({ onDeleted }: { onDeleted?: () => void }) {
   const [status, setStatus] = useState<AlertsStatus | null>(null);
   const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     api
@@ -50,10 +52,26 @@ export function AlertsPanel() {
     }
   }
 
+  async function deleteAccount() {
+    setDeleting(true);
+    setError(null);
+    try {
+      await api.deleteAccount();
+      // Session is already destroyed server-side; reset the SPA to signed-out.
+      if (onDeleted) onDeleted();
+      else window.location.assign('/');
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not delete your account.');
+      setDeleting(false);
+      setConfirmingDelete(false);
+    }
+  }
+
   const subscribed = status?.subscribed === true;
   const pending = status?.pending === true;
 
   return (
+    <>
     <div className="card">
       <h3 className="section-title">Future-impersonation alerts</h3>
       <p className="muted small" style={{ margin: '4px 0 14px', maxWidth: 620 }}>
@@ -70,7 +88,7 @@ export function AlertsPanel() {
           <div className="banner info">
             ✅ Alerts are on for <b>{status?.email}</b>. Last scan: {timeAgo(status?.lastRunAt ? new Date(status.lastRunAt).toISOString() : null)}.
           </div>
-          <button className="btn danger mt16" onClick={unsubscribe} disabled={busy}>
+          <button type="button" className="btn danger mt16" onClick={unsubscribe} disabled={busy}>
             {busy ? <span className="spinner" /> : 'Turn off alerts'}
           </button>
         </div>
@@ -104,11 +122,11 @@ export function AlertsPanel() {
               onKeyDown={(e) => e.key === 'Enter' && subscribe()}
               aria-label="Email for impersonation alerts"
             />
-            <button className="btn ghost" onClick={subscribe} disabled={busy || !email.trim()}>
+            <button type="button" className="btn ghost" onClick={subscribe} disabled={busy || !email.trim()}>
               {busy ? <span className="spinner" /> : 'Resend link'}
             </button>
           </div>
-          <button className="btn danger mt16" onClick={unsubscribe} disabled={busy}>
+          <button type="button" className="btn danger mt16" onClick={unsubscribe} disabled={busy}>
             {busy ? <span className="spinner" /> : 'Cancel'}
           </button>
         </div>
@@ -122,11 +140,40 @@ export function AlertsPanel() {
             onKeyDown={(e) => e.key === 'Enter' && subscribe()}
             aria-label="Email for impersonation alerts"
           />
-          <button className="btn" onClick={subscribe} disabled={busy || !email.trim()}>
+          <button type="button" className="btn" onClick={subscribe} disabled={busy || !email.trim()}>
             {busy ? <span className="spinner" /> : 'Enable alerts'}
           </button>
         </div>
       )}
     </div>
+
+    <div className="card mt16">
+      <h3 className="section-title">Delete account</h3>
+      <p className="muted small" style={{ margin: '4px 0 14px', maxWidth: 620 }}>
+        Permanently erase your account: this revokes this app's access to your GitHub
+        account, turns off any alerts, and deletes everything we store about you (scan
+        history, support messages, reports). This cannot be undone.
+      </p>
+      {confirmingDelete ? (
+        <div className="input-row">
+          <button type="button" className="btn danger" onClick={deleteAccount} disabled={deleting}>
+            {deleting ? <span className="spinner" /> : 'Yes, permanently delete'}
+          </button>
+          <button
+            type="button"
+            className="btn ghost"
+            onClick={() => setConfirmingDelete(false)}
+            disabled={deleting}
+          >
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <button type="button" className="btn danger" onClick={() => setConfirmingDelete(true)}>
+          Delete my account
+        </button>
+      )}
+    </div>
+    </>
   );
 }

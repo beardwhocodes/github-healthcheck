@@ -2,7 +2,8 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 
 import type { Env } from '../env.js';
-import { deactivateByUnsubscribeToken, verifyByToken } from '../alerts/store.js';
+import { deactivateSubscription, verifyByToken } from '../alerts/store.js';
+import { readUnsubscribeToken } from '../alerts/unsubscribe-token.js';
 
 // Public, no-auth routes hit from links inside emails. Authorization is the
 // unguessable token in the query string.
@@ -13,7 +14,7 @@ email.get('/verify', async (c) => {
   const sub = await verifyByToken(c.env, token, Date.now());
   if (!sub) {
     return c.html(
-      page('Link expired', html`This confirmation link is invalid or has already been used. Re-subscribe from the app to get a fresh one.`, c.env.APP_URL),
+      page('Link expired', html`This confirmation link is invalid, has expired, or has already been used. Re-subscribe from the app to get a fresh one.`, c.env.APP_URL),
       400,
     );
   }
@@ -28,12 +29,15 @@ email.get('/verify', async (c) => {
 
 async function handleUnsubscribe(c: Context<{ Bindings: Env }>): Promise<Response> {
   const token = c.req.query('token') ?? '';
-  const login = await deactivateByUnsubscribeToken(c.env, token);
+  const login = await readUnsubscribeToken(c.env, token);
   if (!login) {
     return c.html(
       page('Already unsubscribed', html`This link is invalid or you have already unsubscribed.`, c.env.APP_URL),
     );
   }
+  // The token's signature proved the bearer holds a valid unsubscribe link for
+  // this login; deactivation is idempotent (a no-op if already off / unknown).
+  await deactivateSubscription(c.env, login);
   return c.html(
     page(
       'Unsubscribed',

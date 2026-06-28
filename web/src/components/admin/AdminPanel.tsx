@@ -27,6 +27,7 @@ export function AdminPanel() {
         {SECTIONS.map((s) => (
           <button
             key={s.id}
+            type="button"
             role="tab"
             aria-selected={section === s.id}
             className={`sub-tab ${section === s.id ? 'active' : ''}`}

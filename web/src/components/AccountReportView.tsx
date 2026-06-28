@@ -1,5 +1,5 @@
 import type { AccountReport } from '../api.js';
-import { fmtDate } from '../ui.js';
+import { fmtDate, safeExternalUrl } from '../ui.js';
 import { BandBadge, FindingItem, Gauge } from './Primitives.js';
 import { RepoReportCard } from './RepoReportCard.js';
 
@@ -13,15 +13,19 @@ export function AccountReportView({
   totalRepos?: number;
 }) {
   const { account, summary } = report;
+  // Route external URLs through the same https-only guard as suspectUrl
+  // elsewhere, so a non-https avatar/profile URL can never be rendered.
+  const avatarUrl = safeExternalUrl(account.avatarUrl);
+  const profileUrl = safeExternalUrl(account.htmlUrl);
 
   return (
     <div>
       <div className="card">
         <div className="summary-head">
           <Gauge score={report.score} band={report.band} />
-          {account.avatarUrl && (
+          {avatarUrl && (
             <img
-              src={account.avatarUrl}
+              src={avatarUrl}
               alt=""
               width={56}
               height={56}
@@ -31,7 +35,7 @@ export function AccountReportView({
           <div className="meta">
             <div className="row-between">
               <h2>
-                <a href={account.htmlUrl} target="_blank" rel="noreferrer noopener">
+                <a href={profileUrl} target="_blank" rel="noreferrer noopener">
                   {account.login}
                 </a>
               </h2>

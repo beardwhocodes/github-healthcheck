@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { GitHubClient } from '../src/github/client.js';
 import type { RawCommit } from '../src/github/client.js';
@@ -66,13 +66,19 @@ describe('mapWithConcurrency', () => {
     expect(maxObserved).toBeLessThanOrEqual(cap);
   });
 
-  it('propagates a rejection from the callback (does not swallow errors)', async () => {
-    await expect(
-      mapWithConcurrency([1, 2, 3], 2, async (n) => {
+  it('drops a rejecting item but keeps its siblings (allSettled-style)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const result = await mapWithConcurrency([1, 2, 3], 2, async (n) => {
         if (n === 2) throw new Error('intentional failure');
         return n;
-      }),
-    ).rejects.toThrow('intentional failure');
+      });
+      // The bad item is filtered out; the others survive in order.
+      expect(result).toEqual([1, 3]);
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('returns an empty array for empty input', async () => {
@@ -128,6 +134,13 @@ describe('buildRepoSnapshotSafe', () => {
     const snapshot = await buildRepoSnapshotSafe(client, raw);
     expect(snapshot).not.toBeNull();
     expect(snapshot?.fullName).toBe('testowner/test-repo');
+  });
+
+  it('filters non-string entries out of topics', async () => {
+    const client = makeFakeClient();
+    const raw = makeRawRepo({ topics: ['a', 123, null, 'b', { x: 1 }] });
+    const snapshot = await buildRepoSnapshotSafe(client, raw);
+    expect(snapshot?.topics).toEqual(['a', 'b']);
   });
 
   it('returns null when the underlying function throws', async () => {

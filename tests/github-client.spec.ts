@@ -109,6 +109,149 @@ describe('rate limit handling', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Retry / backoff for transient failures (5xx + secondary rate limits)
+// ---------------------------------------------------------------------------
+
+describe('retry / backoff', () => {
+  // Inject a no-op sleep so backoff adds no real delay; capture the requested
+  // delays to assert Retry-After is honored.
+  function makeRetryClient(): { client: GitHubClient; delays: number[] } {
+    const delays: number[] = [];
+    const client = new GitHubClient('test-token', {
+      maxRetries: 2,
+      sleep: async (ms) => {
+        delays.push(ms);
+      },
+    });
+    return { client, delays };
+  }
+
+  let warn: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    warn.mockRestore();
+  });
+
+  it('retries a 500 then succeeds', async () => {
+    const mockFetch = vi
+      .fn()
+      .mockResolvedValueOnce(makeResponse({ message: 'boom' }, 500))
+      .mockResolvedValueOnce(makeResponse({ login: 'octocat' }));
+    vi.stubGlobal('fetch', mockFetch);
+
+    const { client } = makeRetryClient();
+    const result = await client.getAuthenticatedUser();
+
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({ login: 'octocat' });
+  });
+
+  it('retries a secondary rate limit (403 + Retry-After) and honors the delay', async () => {
+    const mockFetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        makeResponse({ message: 'secondary limit' }, 403, {
+          'x-ratelimit-remaining': '50',
+          'retry-after': '3',
+        }),
+      )
+      .mockResolvedValueOnce(makeResponse({ login: 'octocat' }));
+    vi.stubGlobal('fetch', mockFetch);
+
+    const { client, delays } = makeRetryClient();
+    const result = await client.getAuthenticatedUser();
+
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({ login: 'octocat' });
+    expect(delays).toEqual([3000]); // Retry-After: 3s
+  });
+
+  it('gives up after the bounded retry cap and surfaces the error', async () => {
+    const mockFetch = vi.fn().mockResolvedValue(makeResponse({ message: 'down' }, 503));
+    vi.stubGlobal('fetch', mockFetch);
+
+    const { client } = makeRetryClient();
+    await expect(client.getAuthenticatedUser()).rejects.toMatchObject({
+      status: 503,
+      name: 'GitHubApiError',
+    });
+    // maxRetries=2 → one initial attempt plus two retries.
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+  });
+
+  it('does NOT retry a plain 403 with no Retry-After', async () => {
+    const mockFetch = vi.fn().mockResolvedValue(
+      makeResponse({ message: 'Forbidden' }, 403, { 'x-ratelimit-remaining': '50' }),
+    );
+    vi.stubGlobal('fetch', mockFetch);
+
+    const { client } = makeRetryClient();
+    await expect(client.getAuthenticatedUser()).rejects.toMatchObject({ status: 403 });
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Path-segment validation + encoding (SSRF hardening, enforced in-client)
+// ---------------------------------------------------------------------------
+
+describe('path-segment validation', () => {
+  it('rejects an invalid owner before issuing any request', async () => {
+    const mockFetch = vi.fn();
+    vi.stubGlobal('fetch', mockFetch);
+
+    await expect(client.getRepo('../etc', 'repo')).rejects.toMatchObject({
+      status: 400,
+      name: 'GitHubApiError',
+    });
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('rejects an invalid login passed to getUser', async () => {
+    const mockFetch = vi.fn();
+    vi.stubGlobal('fetch', mockFetch);
+
+    await expect(client.getUser('has/slash')).rejects.toMatchObject({ status: 400 });
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('passes valid names through unchanged (encoding is a no-op)', async () => {
+    const mockFetch = vi.fn().mockResolvedValue(makeResponse({ id: 1 }));
+    vi.stubGlobal('fetch', mockFetch);
+
+    await client.getRepo('a.b-c_d', 'repo');
+    expect(mockFetch).toHaveBeenCalledWith(
+      'https://api.github.com/repos/a.b-c_d/repo',
+      expect.anything(),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getReleaseAssets cap
+// ---------------------------------------------------------------------------
+
+describe('getReleaseAssets', () => {
+  it('caps the number of returned assets', async () => {
+    const assets = Array.from({ length: 6 }, (_v, i) => ({
+      name: `asset-${i}`,
+      browser_download_url: `https://example.com/asset-${i}`,
+      size: 100,
+    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(makeResponse([{ assets }])),
+    );
+
+    const result = await client.getReleaseAssets('owner', 'repo', 2);
+    expect(result).toHaveLength(2);
+    expect(result.map((a) => a.name)).toEqual(['asset-0', 'asset-1']);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // getReadme
 // ---------------------------------------------------------------------------
 

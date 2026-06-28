@@ -21,7 +21,7 @@ export function SuspendedNotice({
         If you think this is a mistake, send us a note and we&apos;ll take a look.
       </p>
       {onContact && (
-        <button className="btn mt8" onClick={onContact}>
+        <button type="button" className="btn mt8" onClick={onContact}>
           Contact us
         </button>
       )}

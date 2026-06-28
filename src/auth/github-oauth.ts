@@ -9,6 +9,14 @@ import { recordAudit } from '../admin/audit.js';
 
 const STATE_COOKIE = 'rs_oauth_state';
 
+// In production (https) the OAuth-state cookie is pinned with the __Host- prefix
+// (Secure + Path=/ + no Domain). Local http dev falls back to the bare name. The
+// callback reader derives the prefix the same way so SET and READ names always
+// match. See session.ts cookiePrefix for the full rationale.
+function cookiePrefix(env: Env): 'host' | undefined {
+  return new URL(env.APP_URL).protocol === 'https:' ? 'host' : undefined;
+}
+
 // Public-repo scan needs no special scope (read:user gives us the profile and
 // 2FA status). Including private repos requires the broad `repo` scope, which we
 // only request when the user explicitly opts in.
@@ -23,12 +31,14 @@ oauth.get('/login', async (c) => {
   const state = randomToken(16);
   const signedState = await sign(`${state}:${includePrivate ? '1' : '0'}`, c.env.SESSION_SECRET);
 
+  const prefix = cookiePrefix(c.env);
   setCookie(c, STATE_COOKIE, signedState, {
     httpOnly: true,
-    secure: new URL(c.env.APP_URL).protocol === 'https:',
+    secure: prefix === 'host',
     sameSite: 'Lax',
     path: '/',
     maxAge: 600,
+    prefix,
   });
 
   const authorize = new URL('https://github.com/login/oauth/authorize');
@@ -44,8 +54,9 @@ oauth.get('/login', async (c) => {
 oauth.get('/callback', async (c) => {
   const code = c.req.query('code');
   const returnedState = c.req.query('state');
-  const signedState = getCookie(c, STATE_COOKIE);
-  deleteCookie(c, STATE_COOKIE, { path: '/' });
+  const prefix = cookiePrefix(c.env);
+  const signedState = getCookie(c, STATE_COOKIE, prefix);
+  deleteCookie(c, STATE_COOKIE, { path: '/', prefix });
 
   if (!code || !returnedState || !signedState) {
     return c.redirect('/?error=oauth_missing_params');

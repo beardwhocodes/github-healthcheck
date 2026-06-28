@@ -52,21 +52,23 @@ describe('CSRF origin check', () => {
   });
 
   it('(b) lets a same-origin POST pass CSRF and then hit requireAuth (401)', async () => {
-    // Without a session, a same-origin POST must not be blocked by the CSRF gate —
-    // it should reach requireAuth, which returns 401. This proves that legitimate
-    // same-origin requests are not accidentally CSRF-rejected.
+    // Without a session, a legitimate same-origin POST must not be blocked by the
+    // CSRF gate — it should reach requireAuth, which returns 401. This proves that
+    // genuine same-origin requests are not accidentally CSRF-rejected.
     const res = await SELF.fetch(url('/api/contact'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        // Omitting Origin — same as a same-origin browser request (no Origin on
-        // same-origin non-preflight fetches) — our check only rejects a present,
-        // mismatched Origin, so absence is allowed.
+        // Browsers attach Origin to unsafe-method requests even same-origin, so a
+        // legitimate same-origin mutation carries our own origin. The CSRF gate
+        // now fails closed on a *missing* Origin, so the matching origin is what
+        // lets a real same-origin request through to auth.
+        Origin: 'https://test.local',
       },
       body: JSON.stringify({ name: 'Alice', email: 'alice@test.local', message: 'hi' }),
     });
-    // CSRF gate passes (no origin header → not a cross-origin request); requireAuth
-    // returns 401 because there is no session cookie.
+    // CSRF gate passes (origin matches our own); requireAuth returns 401 because
+    // there is no session cookie.
     expect(res.status).toBe(401);
   });
 

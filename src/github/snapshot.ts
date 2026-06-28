@@ -5,26 +5,40 @@ import type {
 } from '../engine/types.js';
 import type { GitHubClient, RawCommit } from './client.js';
 
+// Sentinel for an item whose callback rejected — kept distinct from any legit
+// R (including null/undefined) so we can filter it out unambiguously.
+const FAILED = Symbol('mapWithConcurrency.failed');
+
 // Run async tasks with a bounded worker pool (protects the GitHub rate limit).
+// allSettled-style: a single rejecting item is logged and dropped rather than
+// aborting the whole batch and stranding its siblings. Successful results keep
+// their input-relative order; callers already filter/flatten the output.
 export async function mapWithConcurrency<T, R>(
   items: T[],
   concurrency: number,
   fn: (item: T, index: number) => Promise<R>,
 ): Promise<R[]> {
-  const results: R[] = new Array(items.length);
-  let cursor = 0;
+  const results: (R | typeof FAILED)[] = new Array(items.length).fill(FAILED);
+  // A single shared iterator hands each worker the next [index, item] pair.
+  // `.next()` is synchronous, so concurrent workers never collide on an item,
+  // and `item` is typed as T (no out-of-bounds undefined to assert away).
+  const queue = items.entries();
 
   async function worker(): Promise<void> {
-    while (cursor < items.length) {
-      const index = cursor++;
-      results[index] = await fn(items[index]!, index);
+    for (const [index, item] of queue) {
+      try {
+        results[index] = await fn(item, index);
+      } catch (err) {
+        console.warn(`mapWithConcurrency: item ${index} failed`, err);
+        // Leave the FAILED sentinel; it is filtered out below.
+      }
     }
   }
 
   await Promise.all(
     Array.from({ length: Math.min(concurrency, items.length) }, () => worker()),
   );
-  return results;
+  return results.filter((r): r is R => r !== FAILED);
 }
 
 export function buildAccountSnapshot(
@@ -66,7 +80,9 @@ function mapRepoMeta(raw: Record<string, unknown>): Omit<
     fullName: String(raw.full_name ?? `${owner}/${name}`),
     htmlUrl: String(raw.html_url ?? ''),
     description: (raw.description as string | null) ?? null,
-    topics: Array.isArray(raw.topics) ? (raw.topics as string[]) : [],
+    topics: Array.isArray(raw.topics)
+      ? raw.topics.filter((t): t is string => typeof t === 'string')
+      : [],
     isFork: Boolean(raw.fork),
     isArchived: Boolean(raw.archived),
     createdAt: String(raw.created_at ?? new Date(0).toISOString()),

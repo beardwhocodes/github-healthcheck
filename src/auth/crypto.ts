@@ -17,6 +17,16 @@ function fromBase64(b64: string): Uint8Array<ArrayBuffer> {
   return bytes;
 }
 
+function toBase64Url(bytes: Uint8Array): string {
+  return toBase64(bytes).replace(/[+/=]/g, (c) => ({ '+': '-', '/': '_', '=': '' })[c] as string);
+}
+
+function fromBase64Url(s: string): Uint8Array<ArrayBuffer> {
+  const b64 = s.replace(/-/g, '+').replace(/_/g, '/');
+  const pad = b64.length % 4 === 0 ? '' : '='.repeat(4 - (b64.length % 4));
+  return fromBase64(b64 + pad);
+}
+
 export function randomToken(bytes = 32): string {
   const buf = new Uint8Array(bytes);
   crypto.getRandomValues(buf);
@@ -31,14 +41,30 @@ export async function sha256Hex(value: string): Promise<string> {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+// Derived AES/HMAC keys are only as strong as SESSION_SECRET. Fail closed at the
+// derivation point rather than silently keying off a weak secret.
+const MIN_SECRET_LENGTH = 32;
+
+function assertSecretStrength(secret: string): void {
+  if (secret.length < MIN_SECRET_LENGTH) {
+    throw new Error(`SESSION_SECRET must be at least ${MIN_SECRET_LENGTH} characters`);
+  }
+}
+
+// At-rest ciphertext format version. Bump when the encryption scheme changes;
+// decrypt refuses other versions so a scheme/format change forces re-auth instead
+// of silently mis-decrypting old blobs.
+const CIPHER_VERSION = 'v1';
+
 async function aesKey(secret: string): Promise<CryptoKey> {
+  assertSecretStrength(secret);
   // Domain-separated from the HMAC key so the same SESSION_SECRET never serves
   // two cryptographic purposes with the same derived key material.
   const digest = await crypto.subtle.digest('SHA-256', encoder.encode(`${secret}:aes-gcm:v1`));
   return crypto.subtle.importKey('raw', digest, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
 }
 
-// Returns "iv.ciphertext", both base64.
+// Returns "<version>:iv.ciphertext", iv and ciphertext base64.
 export async function encrypt(plaintext: string, secret: string): Promise<string> {
   const key = await aesKey(secret);
   const iv = crypto.getRandomValues(new Uint8Array(12));
@@ -47,11 +73,16 @@ export async function encrypt(plaintext: string, secret: string): Promise<string
     key,
     encoder.encode(plaintext),
   );
-  return `${toBase64(iv)}.${toBase64(new Uint8Array(ct))}`;
+  return `${CIPHER_VERSION}:${toBase64(iv)}.${toBase64(new Uint8Array(ct))}`;
 }
 
-export async function decrypt(payload: string, secret: string): Promise<string> {
-  const [ivB64, ctB64] = payload.split('.');
+// Returns the plaintext, or null when the blob carries an unknown/absent version
+// marker (a different scheme — caller should treat it as "needs re-auth"). Throws
+// only when a current-version blob is structurally malformed or fails auth.
+export async function decrypt(payload: string, secret: string): Promise<string | null> {
+  const sep = payload.indexOf(':');
+  if (sep < 0 || payload.slice(0, sep) !== CIPHER_VERSION) return null;
+  const [ivB64, ctB64] = payload.slice(sep + 1).split('.');
   if (!ivB64 || !ctB64) throw new Error('malformed ciphertext');
   const key = await aesKey(secret);
   const pt = await crypto.subtle.decrypt(
@@ -63,6 +94,7 @@ export async function decrypt(payload: string, secret: string): Promise<string> 
 }
 
 async function hmacKey(secret: string): Promise<CryptoKey> {
+  assertSecretStrength(secret);
   // Domain-separated from the AES key (see aesKey).
   const digest = await crypto.subtle.digest('SHA-256', encoder.encode(`${secret}:hmac:v1`));
   return crypto.subtle.importKey(
@@ -86,12 +118,50 @@ export async function verify(signed: string, secret: string): Promise<string | n
   if (idx < 0) return null;
   const value = signed.slice(0, idx);
   const sigB64 = signed.slice(idx + 1);
+  let sig: Uint8Array<ArrayBuffer>;
+  try {
+    // fromBase64 throws on non-base64 input; decode before the verify call so a
+    // malformed signature is a verification failure, not an uncaught 500.
+    sig = fromBase64(sigB64);
+  } catch {
+    return null;
+  }
   const key = await hmacKey(secret);
   const ok = await crypto.subtle.verify(
     'HMAC',
     key,
-    fromBase64(sigB64),
+    sig,
     encoder.encode(value),
   ).catch(() => false);
   return ok ? value : null;
+}
+
+// URL-safe, stateless HMAC capability token: "base64url(value).base64url(sig)".
+// Unlike `sign` (which lands in a cookie), this is safe to drop straight into a
+// link. It carries NO stored state — the value is recovered and the signature
+// re-verified on demand — so a capability link (e.g. unsubscribe) stays valid
+// indefinitely and a database read reveals nothing replayable.
+export async function signToken(value: string, secret: string): Promise<string> {
+  const key = await hmacKey(secret);
+  const data = encoder.encode(value);
+  const sig = await crypto.subtle.sign('HMAC', key, data);
+  return `${toBase64Url(data)}.${toBase64Url(new Uint8Array(sig))}`;
+}
+
+// Returns the signed value if the signature is valid, else null (tampered,
+// malformed, or wrong secret). Constant-time via crypto.subtle.verify.
+export async function verifyToken(token: string, secret: string): Promise<string | null> {
+  const dot = token.indexOf('.');
+  if (dot < 0) return null;
+  let data: Uint8Array<ArrayBuffer>;
+  let sig: Uint8Array<ArrayBuffer>;
+  try {
+    data = fromBase64Url(token.slice(0, dot));
+    sig = fromBase64Url(token.slice(dot + 1));
+  } catch {
+    return null;
+  }
+  const key = await hmacKey(secret);
+  const ok = await crypto.subtle.verify('HMAC', key, sig, data).catch(() => false);
+  return ok ? decoder.decode(data) : null;
 }
