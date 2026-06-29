@@ -196,4 +196,4 @@ Heuristics are data-driven (`src/engine/constants.ts`) — extend the vocabulary
 
 ## License
 
-[MIT](LICENSE) © Josh Tomaino. Detection methodology is adapted from a public disclosure with attribution — see [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md).
+[MIT](LICENSE) © [Josh Tomaino](https://x.com/beardwhocodes) · [copyjosh.com](https://copyjosh.com). Detection methodology is adapted from a public disclosure with attribution — see [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md).
