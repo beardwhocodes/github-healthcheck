@@ -188,7 +188,7 @@ Keep `wrangler.jsonc` `ALERT_FROM_EMAIL` and the SPA `SENDER` in agreement so th
 
 ## Tech stack
 
-**Cloudflare Workers** (Hono) · **D1** (SQLite) · **Cron Triggers** · **Cloudflare Email** · **React 19** + **Vite** · **TypeScript** · **Biome** · **Vitest** (`@cloudflare/vitest-pool-workers`) · **pnpm**
+**Cloudflare Workers** (Hono) · **D1** (SQLite) · **Cron Triggers** · **Cloudflare Email** · **React 19** + **Vite** · **TypeScript** · **Biome** · **Vitest** (`@cloudflare/vitest-plugin`) · **pnpm**
 
 Heuristics are data-driven (`src/engine/constants.ts`) — extend the vocabulary as the campaign evolves without touching rule logic. Scans are capped (default 30 repos per account; top-10 most-starred, max 15, for clone search) to stay within GitHub's rate budget; caps are configurable.
 

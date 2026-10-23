@@ -10,8 +10,10 @@
 // The clone-baseline WRITE/dedupe contract (recordClones / getKnownSuspectRepos)
 // is covered structurally in alerts.itest.ts; here we assert the cron READS that
 // baseline on a clean scan and records nothing when no new clone is found.
-import { env, fetchMock } from 'cloudflare:test';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { env } from 'cloudflare:test';
+import { http, HttpResponse } from 'msw';
+import { network } from './network.js';
+import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { Env } from '../../src/env.js';
 import { runImpersonationScan } from '../../src/alerts/cron.js';
@@ -95,27 +97,29 @@ async function getSubRow(login: string): Promise<{
     `SELECT active, token_enc, last_run_at, last_scanned_at FROM alert_subscriptions WHERE login = ?`,
   )
     .bind(login)
-    .first<{ active: number; token_enc: string; last_run_at: number | null; last_scanned_at: number | null }>();
+    .first<{
+      active: number;
+      token_enc: string;
+      last_run_at: number | null;
+      last_scanned_at: number | null;
+    }>();
   if (!row) throw new Error(`no subscription row for ${login}`);
   return row;
 }
 
 // Mock GitHub's /user token-validity probe with a single status.
 function mockUserProbe(status: number, body = '{"login":"x"}'): void {
-  fetchMock.activate();
-  fetchMock.disableNetConnect();
-  fetchMock
-    .get('https://api.github.com')
-    .intercept({ path: '/user', method: 'GET' })
-    .reply(status, body, JSON_HEADERS);
+  network.use(
+    http.get(
+      'https://api.github.com/user',
+      () => new HttpResponse(body, { status: status, ...JSON_HEADERS }),
+      { once: true },
+    ),
+  );
 }
 
 beforeEach(async () => {
   await applyMigrations();
-});
-
-afterEach(() => {
-  fetchMock.deactivate();
 });
 
 describe('listActiveSubscriptions (cron selection + sharding)', () => {
@@ -162,15 +166,24 @@ describe('runImpersonationScan (per-subscriber outcomes)', () => {
       .bind('watcher', 'watcher/myrepo')
       .run();
 
-    fetchMock.activate();
-    fetchMock.disableNetConnect();
-    const gh = fetchMock.get('https://api.github.com');
-    gh.intercept({ path: '/user', method: 'GET' }).reply(200, '{"login":"watcher"}', JSON_HEADERS);
+    network.use(
+      http.get(
+        'https://api.github.com/user',
+        () =>
+          new HttpResponse('{"login":"watcher"}', {
+            status: 200,
+            ...JSON_HEADERS,
+          }),
+        { once: true },
+      ),
+    );
     // No same-name candidates => no clones => nothing recorded.
-    gh.intercept({ path: /^\/search\/repositories/, method: 'GET' }).reply(
-      200,
-      '{"items":[]}',
-      JSON_HEADERS,
+    network.use(
+      http.get(
+        /^https:\/\/api\.github\.com\/search\/repositories/,
+        () => new HttpResponse('{"items":[]}', { status: 200, ...JSON_HEADERS }),
+        { once: true },
+      ),
     );
 
     const result = await runImpersonationScan(appEnv, NOW);
