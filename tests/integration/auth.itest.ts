@@ -4,17 +4,17 @@
 // purges only expired rows, and that the three CSRF-guard branches in
 // /auth/callback redirect with the correct error parameters before any outbound
 // GitHub call is made.
-import { env, fetchMock, SELF } from 'cloudflare:test';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { env, SELF } from 'cloudflare:test';
+import { http, HttpResponse } from 'msw';
+import { network } from './network.js';
+import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { Env } from '../../src/env.js';
 import { encrypt, randomToken, sha256Hex, sign } from '../../src/auth/crypto.js';
 import { sweepExpiredSessions } from '../../src/auth/session.js';
 
 const DB = (env as unknown as { DB: D1Database }).DB;
-const SESSION_SECRET = (
-  env as unknown as { SESSION_SECRET: string }
-).SESSION_SECRET;
+const SESSION_SECRET = (env as unknown as { SESSION_SECRET: string }).SESSION_SECRET;
 const appEnv = env as unknown as Env;
 
 // ── schema setup ─────────────────────────────────────────────────────────────
@@ -90,18 +90,16 @@ async function seedUser(login: string): Promise<void> {
 }
 
 async function countSessionRows(idHash: string): Promise<number> {
-  const row = await DB.prepare(
-    `SELECT COUNT(*) AS n FROM sessions WHERE id = ?`,
-  )
+  const row = await DB.prepare(`SELECT COUNT(*) AS n FROM sessions WHERE id = ?`)
     .bind(idHash)
     .first<{ n: number }>();
   return row?.n ?? 0;
 }
 
 async function totalSessionRows(): Promise<number> {
-  const row = await DB.prepare(
-    `SELECT COUNT(*) AS n FROM sessions`,
-  ).first<{ n: number }>();
+  const row = await DB.prepare(`SELECT COUNT(*) AS n FROM sessions`).first<{
+    n: number;
+  }>();
   return row?.n ?? 0;
 }
 
@@ -171,25 +169,20 @@ describe('OAuth state-check branches (/auth/callback)', () => {
     });
 
     const location = res.headers.get('location') ?? '';
-    expect(res.status === 302 || res.status === 301 || res.status === 303).toBe(
-      true,
-    );
+    expect(res.status === 302 || res.status === 301 || res.status === 303).toBe(true);
     expect(location).toContain('error=oauth_missing_params');
   });
 
   it('redirects with oauth_bad_state when the state cookie signature is invalid', async () => {
-    const res = await SELF.fetch(
-      url('/auth/callback?state=somestate&code=somecode'),
-      {
-        redirect: 'manual',
-        headers: { Cookie: '__Host-rs_oauth_state=garbage_not_a_valid_signature' },
+    const res = await SELF.fetch(url('/auth/callback?state=somestate&code=somecode'), {
+      redirect: 'manual',
+      headers: {
+        Cookie: '__Host-rs_oauth_state=garbage_not_a_valid_signature',
       },
-    );
+    });
 
     const location = res.headers.get('location') ?? '';
-    expect(res.status === 302 || res.status === 301 || res.status === 303).toBe(
-      true,
-    );
+    expect(res.status === 302 || res.status === 301 || res.status === 303).toBe(true);
     expect(location).toContain('error=oauth_bad_state');
   });
 
@@ -197,20 +190,15 @@ describe('OAuth state-check branches (/auth/callback)', () => {
     // Sign 'abc:0' so the embedded state is 'abc', but pass ?state=different.
     const signedCookie = await sign('abc:0', SESSION_SECRET);
 
-    const res = await SELF.fetch(
-      url('/auth/callback?state=different&code=somecode'),
-      {
-        redirect: 'manual',
-        // STOP condition: if this does NOT return oauth_state_mismatch, the
-        // CSRF guard is broken.
-        headers: { Cookie: `__Host-rs_oauth_state=${signedCookie}` },
-      },
-    );
+    const res = await SELF.fetch(url('/auth/callback?state=different&code=somecode'), {
+      redirect: 'manual',
+      // STOP condition: if this does NOT return oauth_state_mismatch, the
+      // CSRF guard is broken.
+      headers: { Cookie: `__Host-rs_oauth_state=${signedCookie}` },
+    });
 
     const location = res.headers.get('location') ?? '';
-    expect(res.status === 302 || res.status === 301 || res.status === 303).toBe(
-      true,
-    );
+    expect(res.status === 302 || res.status === 301 || res.status === 303).toBe(true);
     expect(location).toContain('error=oauth_state_mismatch');
   });
 });
@@ -218,58 +206,57 @@ describe('OAuth state-check branches (/auth/callback)', () => {
 // ── Step 3: OAuth happy path (requires outbound fetch stubbing) ───────────────
 
 describe('OAuth happy path', () => {
-  afterEach(() => {
-    // Deactivate the mock agent after each test so other tests get real fetch.
-    fetchMock.deactivate();
-  });
-
   it('creates a session and redirects to /?signed_in=1 on successful OAuth', async () => {
-    fetchMock.activate();
-    fetchMock.disableNetConnect();
-
     // Stub GitHub token exchange.
-    fetchMock
-      .get('https://github.com')
-      .intercept({ path: '/login/oauth/access_token', method: 'POST' })
-      .reply(
-        200,
-        JSON.stringify({
-          access_token: 'gho_fakegithubtoken',
-          scope: 'read:user',
-          token_type: 'bearer',
-        }),
-        { headers: { 'content-type': 'application/json' } },
-      );
+    network.use(
+      http.post(
+        'https://github.com/login/oauth/access_token',
+        () =>
+          new HttpResponse(
+            JSON.stringify({
+              access_token: 'gho_fakegithubtoken',
+              scope: 'read:user',
+              token_type: 'bearer',
+            }),
+            {
+              status: 200,
+              headers: { 'content-type': 'application/json' },
+            },
+          ),
+        { once: true },
+      ),
+    );
 
     // Stub GitHub user API.
-    fetchMock
-      .get('https://api.github.com')
-      .intercept({ path: '/user', method: 'GET' })
-      .reply(
-        200,
-        JSON.stringify({
-          login: 'integrationuser',
-          name: 'Integration User',
-          avatar_url: 'https://avatars.example/u.png',
-        }),
-        { headers: { 'content-type': 'application/json' } },
-      );
+    network.use(
+      http.get(
+        'https://api.github.com/user',
+        () =>
+          new HttpResponse(
+            JSON.stringify({
+              login: 'integrationuser',
+              name: 'Integration User',
+              avatar_url: 'https://avatars.example/u.png',
+            }),
+            {
+              status: 200,
+              headers: { 'content-type': 'application/json' },
+            },
+          ),
+        { once: true },
+      ),
+    );
 
     // Build a validly-signed state cookie matching the query param 'teststate'.
     const signedCookie = await sign('teststate:0', SESSION_SECRET);
 
-    const res = await SELF.fetch(
-      url('/auth/callback?state=teststate&code=real-code'),
-      {
-        redirect: 'manual',
-        headers: { Cookie: `__Host-rs_oauth_state=${signedCookie}` },
-      },
-    );
+    const res = await SELF.fetch(url('/auth/callback?state=teststate&code=real-code'), {
+      redirect: 'manual',
+      headers: { Cookie: `__Host-rs_oauth_state=${signedCookie}` },
+    });
 
     const location = res.headers.get('location') ?? '';
-    expect(res.status === 302 || res.status === 301 || res.status === 303).toBe(
-      true,
-    );
+    expect(res.status === 302 || res.status === 301 || res.status === 303).toBe(true);
     expect(location).toContain('signed_in=1');
 
     // A session row should have been created.

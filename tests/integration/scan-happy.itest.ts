@@ -4,8 +4,10 @@
 // returns the documented response SHAPE, with the GitHub API mocked. /api/scan
 // and /api/report are both POST (converted from GET in the CSRF hardening pass,
 // since each writes a scan-log row), so both require a same-origin Origin header.
-import { env, fetchMock, SELF } from 'cloudflare:test';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { env, SELF } from 'cloudflare:test';
+import { http, HttpResponse } from 'msw';
+import { network } from './network.js';
+import { beforeEach, describe, expect, it } from 'vitest';
 
 import { encrypt, randomToken, sha256Hex } from '../../src/auth/crypto.js';
 
@@ -41,7 +43,15 @@ async function seedSession(login: string): Promise<string> {
     `INSERT INTO sessions (id, login, name, avatar_url, scopes, token_enc, expires_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
   )
-    .bind(idHash, login, login, 'https://avatar.example/x.png', 'read:user', tokenEnc, Date.now() + 3_600_000)
+    .bind(
+      idHash,
+      login,
+      login,
+      'https://avatar.example/x.png',
+      'read:user',
+      tokenEnc,
+      Date.now() + 3_600_000,
+    )
     .run();
   return rawId;
 }
@@ -69,31 +79,35 @@ beforeEach(async () => {
   await applyMigrations();
 });
 
-afterEach(() => {
-  fetchMock.deactivate();
-});
-
 describe('POST /api/scan (account, happy path)', () => {
   it('returns 200 with the account report shape', async () => {
     const rawId = await seedSession('scanner');
 
-    fetchMock.activate();
-    fetchMock.disableNetConnect();
-    const gh = fetchMock.get('https://api.github.com');
-    gh.intercept({ path: '/users/octocat', method: 'GET' }).reply(
-      200,
-      JSON.stringify(ACCOUNT),
-      JSON_HEADERS,
+    network.use(
+      http.get(
+        'https://api.github.com/users/octocat',
+        () =>
+          new HttpResponse(JSON.stringify(ACCOUNT), {
+            status: 200,
+            ...JSON_HEADERS,
+          }),
+        { once: true },
+      ),
     );
-    gh.intercept({ path: /^\/users\/octocat\/repos/, method: 'GET' }).reply(
-      200,
-      '[]',
-      JSON_HEADERS,
+    network.use(
+      http.get(
+        /^https:\/\/api\.github\.com\/users\/octocat\/repos/,
+        () => new HttpResponse('[]', { status: 200, ...JSON_HEADERS }),
+        { once: true },
+      ),
     );
 
     const res = await SELF.fetch(url('/api/scan?target=octocat'), {
       method: 'POST',
-      headers: { Cookie: `__Host-rs_session=${rawId}`, Origin: 'https://test.local' },
+      headers: {
+        Cookie: `__Host-rs_session=${rawId}`,
+        Origin: 'https://test.local',
+      },
     });
 
     expect(res.status).toBe(200);
@@ -101,7 +115,13 @@ describe('POST /api/scan (account, happy path)', () => {
       kind: string;
       scanned: number;
       totalRepos: number;
-      report: { score: number; band: string; account: { login: string }; findings: unknown[]; repoReports: unknown[] };
+      report: {
+        score: number;
+        band: string;
+        account: { login: string };
+        findings: unknown[];
+        repoReports: unknown[];
+      };
     };
     expect(body.kind).toBe('account');
     expect(body.scanned).toBe(0);
@@ -127,27 +147,47 @@ describe('POST /api/report (self-audit, happy path)', () => {
   it('returns 200 with the report rollup shape', async () => {
     const rawId = await seedSession('selfscanner');
 
-    fetchMock.activate();
-    fetchMock.disableNetConnect();
-    const gh = fetchMock.get('https://api.github.com');
-    gh.intercept({ path: '/user', method: 'GET' }).reply(
-      200,
-      JSON.stringify({ ...ACCOUNT, login: 'selfscanner', two_factor_authentication: true }),
-      JSON_HEADERS,
+    network.use(
+      http.get(
+        'https://api.github.com/user',
+        () =>
+          new HttpResponse(
+            JSON.stringify({
+              ...ACCOUNT,
+              login: 'selfscanner',
+              two_factor_authentication: true,
+            }),
+            { status: 200, ...JSON_HEADERS },
+          ),
+        { once: true },
+      ),
     );
-    gh.intercept({ path: /^\/user\/repos/, method: 'GET' }).reply(200, '[]', JSON_HEADERS);
+    network.use(
+      http.get(
+        /^https:\/\/api\.github\.com\/user\/repos/,
+        () => new HttpResponse('[]', { status: 200, ...JSON_HEADERS }),
+        { once: true },
+      ),
+    );
 
     // POST now (writes a scan log), so the origin gate applies — send Origin.
     const res = await SELF.fetch(url('/api/report'), {
       method: 'POST',
-      headers: { Cookie: `__Host-rs_session=${rawId}`, Origin: 'https://test.local' },
+      headers: {
+        Cookie: `__Host-rs_session=${rawId}`,
+        Origin: 'https://test.local',
+      },
     });
 
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       scanned: number;
       totalRepos: number;
-      report: { score: number; account: { login: string }; summary: { reposScanned: number } };
+      report: {
+        score: number;
+        account: { login: string };
+        summary: { reposScanned: number };
+      };
     };
     expect(body.scanned).toBe(0);
     expect(body.totalRepos).toBe(0);

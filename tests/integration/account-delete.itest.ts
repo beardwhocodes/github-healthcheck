@@ -3,8 +3,10 @@
 // D1, proving that every store's rows for the login are erased — including the
 // encrypted OAuth token — and that the GitHub token-revoke call is attempted.
 // A pure unit test can't cover the cross-store batch or the auth boundary.
-import { env, fetchMock, SELF } from 'cloudflare:test';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { env, SELF } from 'cloudflare:test';
+import { http, HttpResponse } from 'msw';
+import { network } from './network.js';
+import { beforeEach, describe, expect, it } from 'vitest';
 
 import { encrypt, randomToken, sha256Hex } from '../../src/auth/crypto.js';
 
@@ -49,7 +51,15 @@ async function seedAccount(login: string): Promise<string> {
     DB.prepare(
       `INSERT INTO sessions (id, login, name, avatar_url, scopes, token_enc, expires_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    ).bind(idHash, login, login, 'https://avatar.example/x.png', 'read:user', tokenEnc, now + 3_600_000),
+    ).bind(
+      idHash,
+      login,
+      login,
+      'https://avatar.example/x.png',
+      'read:user',
+      tokenEnc,
+      now + 3_600_000,
+    ),
     DB.prepare(
       `INSERT INTO users (login, name, avatar_url, role, includes_private, scan_count, first_seen_at, last_seen_at)
        VALUES (?, ?, ?, 'user', 0, 1, ?, ?)`,
@@ -58,7 +68,10 @@ async function seedAccount(login: string): Promise<string> {
       `INSERT INTO alert_subscriptions (login, email, token_enc, active, verified, created_at)
        VALUES (?, ?, ?, 1, 1, ?)`,
     ).bind(login, `${login}@example.com`, tokenEnc, now),
-    DB.prepare(`INSERT INTO watched_repos (login, full_name) VALUES (?, ?)`).bind(login, `${login}/repo`),
+    DB.prepare(`INSERT INTO watched_repos (login, full_name) VALUES (?, ?)`).bind(
+      login,
+      `${login}/repo`,
+    ),
     DB.prepare(
       `INSERT INTO known_clones (login, source_repo, suspect_repo, confidence, first_seen, notified)
        VALUES (?, ?, ?, 90, ?, 1)`,
@@ -87,26 +100,26 @@ beforeEach(async () => {
   await applyMigrations();
 });
 
-afterEach(() => {
-  fetchMock.deactivate();
-});
-
 describe('DELETE /api/me (account deletion)', () => {
   it('revokes the GitHub token and erases all of the user rows', async () => {
     const login = 'deluser';
     const rawId = await seedAccount(login);
 
-    fetchMock.activate();
-    fetchMock.disableNetConnect();
     // GitHub "Delete an app token" returns 204 on success.
-    fetchMock
-      .get('https://api.github.com')
-      .intercept({ path: `/applications/${GITHUB_CLIENT_ID}/token`, method: 'DELETE' })
-      .reply(204, '');
+    network.use(
+      http.delete(
+        `https://api.github.com/applications/${GITHUB_CLIENT_ID}/token`,
+        () => new HttpResponse(null, { status: 204 }),
+        { once: true },
+      ),
+    );
 
     const res = await SELF.fetch(url('/api/me'), {
       method: 'DELETE',
-      headers: { Cookie: `__Host-rs_session=${rawId}`, Origin: 'https://test.local' },
+      headers: {
+        Cookie: `__Host-rs_session=${rawId}`,
+        Origin: 'https://test.local',
+      },
     });
 
     expect(res.status).toBe(200);
@@ -129,16 +142,20 @@ describe('DELETE /api/me (account deletion)', () => {
     const login = 'deluser2';
     const rawId = await seedAccount(login);
 
-    fetchMock.activate();
-    fetchMock.disableNetConnect();
-    fetchMock
-      .get('https://api.github.com')
-      .intercept({ path: `/applications/${GITHUB_CLIENT_ID}/token`, method: 'DELETE' })
-      .reply(500, 'boom');
+    network.use(
+      http.delete(
+        `https://api.github.com/applications/${GITHUB_CLIENT_ID}/token`,
+        () => new HttpResponse('boom', { status: 500 }),
+        { once: true },
+      ),
+    );
 
     const res = await SELF.fetch(url('/api/me'), {
       method: 'DELETE',
-      headers: { Cookie: `__Host-rs_session=${rawId}`, Origin: 'https://test.local' },
+      headers: {
+        Cookie: `__Host-rs_session=${rawId}`,
+        Origin: 'https://test.local',
+      },
     });
 
     expect(res.status).toBe(200);

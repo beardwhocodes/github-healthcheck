@@ -31,7 +31,7 @@ CI will be closed without further review.
 
 ## Getting set up
 
-Prerequisites: **Node 22** and **pnpm** (the repo is pnpm-only — see
+Prerequisites: **Node 24.22.1** and **pnpm** (the repo is pnpm-only — see
 `packageManager` in `package.json`).
 
 ```bash
